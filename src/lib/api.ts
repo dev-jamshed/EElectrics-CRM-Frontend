@@ -29,5 +29,6 @@ export const crmApi = {
   sendDocument: async (id: string) => (await api.post<DocumentRecord>(`/documents/${id}/send`, {})).data,
   markPaid: async (id: string) => (await api.post<DocumentRecord>(`/documents/${id}/mark-paid`, {})).data,
   addresses: async (q: string) => (await api.get<AddressSuggestion[]>("/addresses/search", { params: { q } })).data,
-  pdfPreview: async (id: string) => (await api.get<{ html: string }>(`/pdf/documents/${id}`)).data
+  pdfPreview: async (id: string) => (await api.get<{ html: string }>(`/pdf/documents/${id}`)).data,
+  pdfDownloadUrl: (id: string) => `${String(api.defaults.baseURL ?? "").replace(/\/$/, "")}/pdf/documents/${id}/download`
 };

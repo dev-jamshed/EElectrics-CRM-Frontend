@@ -8,9 +8,11 @@ import { ClientsPage } from "@/features/clients/clients-page";
 import { ClientDetailPage } from "@/features/clients/client-detail-page";
 import { LoginPage } from "@/features/auth/login-page";
 import { CustomMailPage } from "@/features/custom-mails/custom-mail-page";
+import { BookingConfirmationPage } from "@/features/bookings/booking-confirmation-page";
 
 export const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
+  { path: "/booking-confirmation/:token", element: <BookingConfirmationPage /> },
   {
     path: "/",
     element: <AppShell />,

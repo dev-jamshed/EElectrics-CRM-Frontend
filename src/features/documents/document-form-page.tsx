@@ -19,6 +19,8 @@ const includeChoices = [
 const defaultBookingNote =
   "A 12-month warranty is provided on all workmanship. Materials supplied by E Electrics are covered by the manufacturer's warranty.";
 
+const oldCrmLogoUrl = "https://res.cloudinary.com/djneoqoqk/image/upload/v1734727264/email_logo_aqoox6.png";
+
 function labels(type: DocumentType) {
   if (type === "BOOKING") {
     return {
@@ -70,6 +72,301 @@ function parseSelectedAddress(value: unknown) {
   } catch {
     return value;
   }
+}
+
+function buildOldBookingPreviewHtml(form: {
+  documentNo: string;
+  bookingDate: string;
+  firstName: string;
+  lastName: string;
+  addressLine: string;
+  extraAddress: string;
+  greeting: string;
+  emailNote: string;
+}) {
+  const clientName = [form.firstName, form.lastName].filter(Boolean).join(" ");
+  const notes = richText(form.emailNote);
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    .new-p{
+      margin: 0px;
+      padding: 0px;
+      font-size: 14px;
+    }
+    body {
+      padding: 0px;
+      margin: 0px;
+      font-family: 'Helvetica Neue', 'Helvetica', Helvetica, Arial, sans-serif;
+      text-align: center;
+      color: black;
+      background: #d3d3d321;
+    }
+    body a {
+      color: #06f;
+    }
+    .invoice-box {
+      background-color: white;
+      max-width: 850px;
+      margin: auto;
+      padding: 20px 0px;
+      padding-bottom: 0px;
+      font-size: 16px;
+      font-family: 'Helvetica Neue', 'Helvetica', Helvetica, Arial, sans-serif;
+      color: black;
+    }
+    .invoice-box table {
+      width: 100%;
+      line-height: inherit;
+      text-align: left;
+      border-collapse: collapse;
+    }
+    .invoice-box table td {
+      vertical-align: top;
+    }
+    .information_td{
+      font-size: 13px;
+      padding: 0px !important;
+    }
+    .text-align-right-td{
+      text-align: right;
+      overflow-wrap: anywhere;
+    }
+    .title_user{
+      width: 71px;
+    }
+    .colum_user{
+      width: 33%;
+    }
+    .logo{
+      width: 100%;
+      max-width: 200px
+    }
+    .greeting-desc{
+      padding:20px 30px;
+      font-size: 13px;
+      text-align: left;
+      overflow-wrap: anywhere;
+    }
+    .notes{
+      font-size: 16px !important;
+    }
+    .footer{
+      padding: 10px 20px;
+      background-color:#DD2D3E;
+      color: white;
+      font-size: 13px !important;
+    }
+    @media only screen and (max-width: 640px) {
+      .logo{
+        width: 100%;
+        max-width: 180px
+      }
+      .colum_user{
+        width: 45%;
+      }
+      .booking-heading{
+        font-size: 16px !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="color-container" style="background:#d3d3d321;width: 100%;height: 100%;padding: 50px 0px;">
+    <div class="invoice-box">
+      <table>
+        <tr class="top">
+          <td style="padding: 20px 30px;padding-bottom: 0px;">
+            <table>
+              <tr>
+                <td colspan="2" style="padding:0px !important">
+                  <img class="logo" src="${oldCrmLogoUrl}" title="logo" alt="Company logo" />
+                </td>
+              </tr>
+              <tr class="logo-td">
+                <td style="padding-bottom: 5px;" class="logo-td">
+                  <p class="new-p"><strong>E Electrics | E Electrics Limited</strong></p>
+                  <p class="new-p"><strong>Head Office: </strong>Dent Close, Essex,RM15 5DS</p>
+                  <p class="new-p">Registration No: 12418331</p>
+                  <p class="new-p">NAPIT Member No: 65513</p>
+                  <p class="new-p">info@eelectrics.co.uk | 0800 999 1452 </p>
+                </td>
+                <td class="colum_user">
+                  <table>
+                    <tr><td class="information_td title_user">Booking :</td><td class="information_td text-align-right-td">${escapeHtml(form.documentNo || "-")}</td></tr>
+                    <tr><td class="information_td title_user">Date :</td><td class="information_td text-align-right-td">${escapeHtml(formatOldDate(form.bookingDate))}</td></tr>
+                    <tr><td class="information_td title_user">FAO :</td><td class="information_td text-align-right-td">${escapeHtml(clientName || "-")}</td></tr>
+                    <tr><td class="information_td title_user">Address :</td><td class="information_td text-align-right-td">${escapeHtml(form.addressLine || "-")}</td></tr>
+                    ${form.extraAddress ? `<tr><td class="information_td title_user">Address 2 :</td><td class="information_td text-align-right-td">${escapeHtml(form.extraAddress)}</td></tr>` : ""}
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        <tr>
+          <td class="booking-heading" style="font-weight: bold;font-size: 20px;padding: 5px 0px 5px 0px;text-align: center;">BOOKING</td>
+        </tr>
+        <tr>
+          <td class="greeting-desc">${richText(form.greeting) || "-"}</td>
+        </tr>
+        ${
+          notes
+            ? `<tr><td colspan="2" style="width: 100% !important;padding: 0px 30px; overflow-wrap:break-word !important;padding-top: 10px;padding-bottom: 10px;font-size: 13px;"><p class="notes" style=" margin-bottom: 0px; margin-top: 0px;padding-bottom: 5px;font-weight: bold;">Notes</p><table><tr><td class="display-block-sm" style="height: 1px;border-bottom:1.5px solid #DD2D3E;display: block !important;"></td></tr></table>${notes}</td></tr>`
+            : ""
+        }
+      </table>
+      <table>
+        <tr>
+          <td class="footer" style="text-align: center;margin-top: 20px;display: block;">
+            <p style="font-weight: bold;line-height: 18px;margin: 8px 0px; padding: 25px 0px;">© 2023 EElectrics. All rights reserved. For bookings and inquiries, contact us at <a href="mailto:info@eelectrics.co.uk" style="color: white;">info@eelectrics.co.uk</a> .</p>
+          </td>
+        </tr>
+      </table>
+    </div>
+  </div>
+</body>
+</html>`;
+}
+
+function buildOldAmountPreviewHtml(form: {
+  type: DocumentType;
+  documentNo: string;
+  issueDate: string;
+  firstName: string;
+  lastName: string;
+  addressLine: string;
+  extraAddress: string;
+  jobTitle: string;
+  body: string;
+  emailNote: string;
+  includeOptions: string[];
+  total: number;
+}) {
+  const title = form.type === "QUOTATION" ? "Quotation" : "Invoice";
+  const clientName = [form.firstName, form.lastName].filter(Boolean).join(" ");
+  const includeLabel = includeTotalLabel(form.includeOptions);
+  const notes = richText(form.emailNote);
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    #doc-target{font-family:sans-serif;-webkit-font-smoothing:antialiased;color:#000;line-height:1.6em;margin:0 auto;}
+    #outer{margin-bottom:10px;width:747px;margin-left:auto;margin-right:auto;background:#fff;}
+    body{padding:0;margin:0;font-family:'Helvetica Neue','Helvetica',Helvetica,Arial,sans-serif;color:black;background:#E8E8E8;}
+    .main-container{padding:0 20px;}
+    .top-orange-line{padding:8px 0;border-top:3px solid #DD2D3E;}
+    .header{display:flex;}
+    .header .col-1{width:55%;}
+    .header .col-2{width:45%;}
+    .header-col-1-details p,.header-col-2-details p{font-size:13px;margin:0;padding:0;line-height:16.5px;font-family:'Helvetica Neue','Helvetica',Helvetica,Arial,sans-serif;}
+    .user-detail{display:flex;justify-content:space-between;}
+    .u-1{width:71px;}
+    .u-2{text-align:right!important;flex:1;overflow-wrap:anywhere;}
+    .logo img{display:block;width:100%;max-width:180px;padding-bottom:10px;}
+    .mail-heading p{border-bottom:3px solid #DD2D3E;font-size:20px;font-weight:bold;padding-bottom:0;margin:16px 0 13px;}
+    .description-container{margin:10px 0;line-height:17.5px;}
+    .description-header,.final-price-footer{background-color:#DD2D3E;font-weight:bold;font-size:13px;color:white;display:flex;align-items:center;justify-content:space-between;padding:0 20px;}
+    .description-header p,.final-price-footer p,.discount-price-footer p{margin:0;padding:10px 0;}
+    .description-body{background-color:PapayaWhip;}
+    .job-description-div,.description-div,.discount-price-footer{padding:0 20px;font-size:13px;}
+    .discount-price-footer{display:flex;align-items:center;justify-content:space-between;font-weight:bold;}
+    .job-description-div{border-bottom:1px solid #DD2D3E;display:flex;align-items:center;}
+    .job-description-div p{padding:10px 0;margin:0;}
+    .description-div{border-bottom:2px solid #DD2D3E;min-height:95px;overflow-wrap:anywhere;}
+    .note-container{line-height:17.5px;}
+    .note-container p{font-size:13px;margin:5px 0;}
+    .note{margin:5px 0;padding:5px 0!important;font-size:15px!important;font-weight:bold;border-bottom:2px solid #DD2D3E;}
+    @page{size:850px 900px;margin:0!important;padding:0!important}
+    @media(max-width:820px){#outer{width:100%;}.header{display:block}.header .col-1,.header .col-2{width:100%;}.header .col-2{margin-top:14px;}}
+  </style>
+</head>
+<body>
+  <div id="outer"><div id="doc-target"><div id="lipsum"><div class="main-container">
+    <div class="top-orange-line"></div>
+    <div class="logo"><img src="${oldCrmLogoUrl}" title="logo" alt="Company logo" /></div>
+    <div class="header">
+      <div class="col-1"><div class="header-col-1-details">
+        <p style="font-weight: bold;">E Electrics | E Electrics Limited</p>
+        <p style="font-weight: bold;">Head Office: Dent Close, Essex,RM15 5DS</p>
+        <p>Registration No: 12418331 </p>
+        <p>NAPIT Member No: 65513 </p>
+        <p>info@eelectrics.co.uk | 0800 999 1452 </p>
+      </div></div>
+      <div class="col-2"><div class="header-col-2-details">
+        ${previewDetailRow(`${title} :`, form.documentNo || "-")}
+        ${previewDetailRow("Date :", formatOldDate(form.issueDate))}
+        ${previewDetailRow("FAO :", clientName || "-")}
+        ${previewDetailRow("Address :", form.addressLine || "-")}
+        ${form.extraAddress ? previewDetailRow("Address 2 :", form.extraAddress) : ""}
+      </div></div>
+    </div>
+    <div class="mail-heading"><p>${title}</p></div>
+    <div class="description-container">
+      <div class="description-header"><p>Description</p><p>Price</p></div>
+      <div class="description-body">
+        <div class="job-description-div"><p>${escapeHtml(form.jobTitle || "")}</p></div>
+        <div class="description-div">${richText(form.body) || "-"}</div>
+      </div>
+      <div class="description-footer">
+        ${includeLabel ? `<div class="discount-price-footer"><p>${escapeHtml(includeLabel)}</p><p>${formatPounds(form.total)}</p></div>` : ""}
+        <div class="final-price-footer"><p>Total to be Paid</p><p>${formatPounds(form.total)}</p></div>
+      </div>
+    </div>
+    ${notes ? `<div class="note-container"><p class="note">Notes:</p><p>${notes}</p></div>` : ""}
+  </div></div></div></div>
+</body>
+</html>`;
+}
+
+function previewDetailRow(label: string, value: string) {
+  return `<div class="user-detail"><div class="u-1"><p>${escapeHtml(label)}</p></div><div class="u-2"><p>${escapeHtml(value || "-")}</p></div></div>`;
+}
+
+function includeTotalLabel(includes: string[]) {
+  const hasLabour = includes.includes("labour");
+  const hasMaterial = includes.includes("material");
+  if (hasLabour && hasMaterial) return "Total Including Labour and Materials";
+  if (hasLabour) return "Total Including Only Labour";
+  if (hasMaterial) return "Total Including Only Materials";
+  if (includes.includes("total_paid")) return "Total Paid";
+  return "";
+}
+
+function formatPounds(value: number) {
+  return `£ ${Number(value || 0).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+}
+
+function formatOldDate(value: string) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  const parts = new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).formatToParts(date);
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("day")} - ${part("month")} - ${part("year")}`;
+}
+
+function richText(value: string) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+  const withoutDangerousTags = text.replace(/<\s*(script|style|iframe)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "");
+  const withoutHandlers = withoutDangerousTags.replace(/\son\w+\s*=\s*(['"]).*?\1/gi, "");
+  if (/<[a-z][\s\S]*>/i.test(withoutHandlers)) return withoutHandlers;
+  return escapeHtml(withoutHandlers).replace(/\r?\n/g, "<br />");
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 function readFile(file: File): Promise<Attachment> {
@@ -137,7 +434,7 @@ export function DocumentFormPage() {
     materialDescription: "",
     materialPrice: "",
     includeOptions: [] as string[],
-    sendMail: false,
+    sendMail: true,
     sendImages: false,
     invoiceCheck: false,
     emailSubject: "",
@@ -177,7 +474,7 @@ export function DocumentFormPage() {
       materialDescription: seed.lineItems?.find((item) => item.kind === "MATERIAL")?.description ?? "",
       materialPrice: seed.lineItems?.find((item) => item.kind === "MATERIAL")?.unitPrice ? String(seed.lineItems.find((item) => item.kind === "MATERIAL")?.unitPrice) : "",
       includeOptions: parseInclude(seed.includeOptions),
-      sendMail: isEdit ? seed.sendMail ?? false : false,
+      sendMail: isEdit ? seed.sendMail ?? true : true,
       sendImages: isEdit ? seed.sendImages ?? false : false,
       invoiceCheck: isEdit ? seed.invoiceCheck ?? false : false,
       emailSubject: copyDocumentText ? "" : seed.emailSubject ?? "",
@@ -262,38 +559,34 @@ export function DocumentFormPage() {
   };
 
   const previewBooking = () => {
-    const html = `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>Booking Preview</title>
-  <style>
-    body { font-family: Arial, sans-serif; color: #111827; margin: 40px; line-height: 1.5; }
-    header { border-bottom: 2px solid #111827; padding-bottom: 16px; margin-bottom: 24px; }
-    h1 { margin: 0; font-size: 26px; }
-    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
-    .label { font-size: 11px; color: #6b7280; text-transform: uppercase; font-weight: 700; }
-    .box { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; white-space: pre-wrap; margin-top: 8px; }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>Booking Preview</h1>
-    <div>${form.bookingDate || form.issueDate}</div>
-  </header>
-  <section class="grid">
-    <div><div class="label">Name</div>${form.firstName} ${form.lastName}</div>
-    <div><div class="label">Email</div>${form.email}</div>
-    <div><div class="label">Phone</div>${form.phone}</div>
-    <div><div class="label">Postcode</div>${form.postalCode}</div>
-    <div><div class="label">Address</div>${form.addressLine}</div>
-    <div><div class="label">Address 2</div>${form.extraAddress}</div>
-  </section>
-  <h2>${form.jobTitle}</h2>
-  <div class="box">${form.greeting}</div>
-  <div class="box">${form.emailNote}</div>
-</body>
-</html>`;
+    const html = buildOldBookingPreviewHtml({
+      documentNo: existing?.documentNo ?? "-",
+      bookingDate: form.bookingDate || form.issueDate,
+      firstName: form.firstName,
+      lastName: form.lastName,
+      addressLine: form.addressLine,
+      extraAddress: form.extraAddress,
+      greeting: form.greeting,
+      emailNote: form.emailNote
+    });
+    window.open(URL.createObjectURL(new Blob([html], { type: "text/html" })), "_blank");
+  };
+
+  const previewPdf = () => {
+    const html = buildOldAmountPreviewHtml({
+      type: form.type as DocumentType,
+      documentNo: existing?.documentNo ?? "-",
+      issueDate: form.issueDate,
+      firstName: form.firstName,
+      lastName: form.lastName,
+      addressLine: form.addressLine,
+      extraAddress: form.extraAddress,
+      jobTitle: form.jobTitle,
+      body: form.description || form.emailBody,
+      emailNote: form.emailNote,
+      includeOptions: form.includeOptions,
+      total: documentAmount
+    });
     window.open(URL.createObjectURL(new Blob([html], { type: "text/html" })), "_blank");
   };
 
@@ -439,11 +732,8 @@ export function DocumentFormPage() {
               <Button type="button" variant="secondary" onClick={previewBooking}>
                 Preview Booking
               </Button>
+              <MailToggleButton checked={form.sendMail} onChange={(sendMail) => setForm({ ...form, sendMail })} />
             </div>
-            <label className="flex items-center gap-2 text-sm font-medium md:col-span-3">
-              <input type="checkbox" checked={form.sendMail} onChange={(event) => setForm({ ...form, sendMail: event.target.checked })} />
-              Send Mail
-            </label>
           </CardContent>
         </Card>
       </div>
@@ -571,15 +861,20 @@ export function DocumentFormPage() {
           </div>
 
           <div className="space-y-8 md:col-span-3">
-            <Button onClick={submitDocument} disabled={mutation.isPending || !form.firstName || !form.jobTitle}>
-              Send
-            </Button>
+            <div className="flex flex-wrap gap-3">
+              <Button onClick={submitDocument} disabled={mutation.isPending || !form.firstName || !form.jobTitle}>
+                Send
+              </Button>
+              <Button type="button" variant="secondary" onClick={previewPdf}>
+                <FileText className="h-4 w-4" /> Preview PDF
+              </Button>
+            </div>
             <ToggleSwitch
               label="Send Images in Mail ?"
               checked={form.sendImages}
               onChange={(sendImages) => setForm({ ...form, sendImages })}
             />
-            <ToggleSwitch label="Send Mail" checked={form.sendMail} onChange={(sendMail) => setForm({ ...form, sendMail })} />
+            <MailToggleButton checked={form.sendMail} onChange={(sendMail) => setForm({ ...form, sendMail })} />
           </div>
         </CardContent>
       </Card>
@@ -669,6 +964,24 @@ function IncludePriceSection({
 }) {
   return (
     <IconField icon={PoundSterling} label={`${title} Price (GBP)`} type="number" value={price} onChange={onPriceChange} />
+  );
+}
+
+function MailToggleButton({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      className="inline-flex items-center gap-3 rounded-md border px-3 py-2 text-sm font-medium transition hover:bg-secondary"
+      aria-pressed={checked}
+      onClick={() => onChange(!checked)}
+    >
+      <Mail className={`h-4 w-4 ${checked ? "text-primary" : "text-muted-foreground"}`} />
+      <span>Send Mail</span>
+      <span className={`flex h-5 w-10 items-center rounded-full border transition ${checked ? "border-primary bg-primary" : "border-input bg-secondary"}`}>
+        <span className={`h-4 w-4 rounded-full bg-white transition ${checked ? "translate-x-5" : "translate-x-0.5"}`} />
+      </span>
+      <span className={checked ? "text-primary" : "text-muted-foreground"}>{checked ? "On" : "Off"}</span>
+    </button>
   );
 }
 

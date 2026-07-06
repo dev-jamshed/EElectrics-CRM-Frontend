@@ -59,6 +59,8 @@ export type DocumentRecord = {
   issueDate?: string;
   dueDate?: string;
   bookingDate?: string;
+  bookingConfirmed?: boolean;
+  confirmedAt?: string;
   jobTitle: string;
   description?: string;
   greeting?: string;

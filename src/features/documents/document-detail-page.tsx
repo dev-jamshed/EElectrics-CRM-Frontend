@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useEffect } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { CopyPlus, Edit, FileText, Mail, Receipt, Trash2, Wallet } from "lucide-react";
 import { crmApi } from "@/lib/api";
@@ -11,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 export function DocumentDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const { data: doc, isLoading } = useQuery({
     queryKey: ["document", id],
@@ -27,7 +29,8 @@ export function DocumentDetailPage() {
       } else {
         toast.success("Email sent");
       }
-    }
+    },
+    onError: (error: any) => toast.error(error?.response?.data?.message || "Email failed")
   });
 
   const paidMutation = useMutation({
@@ -57,6 +60,11 @@ export function DocumentDetailPage() {
     onError: () => toast.error("Unable to delete")
   });
 
+  useEffect(() => {
+    if (!id || !searchParams.has("download")) return;
+    window.location.href = crmApi.pdfDownloadUrl(id);
+  }, [id, searchParams]);
+
   if (isLoading || !doc) return <div className="text-muted-foreground">Loading...</div>;
 
   const includeOptions = parseInclude(doc.includeOptions);
@@ -66,9 +74,7 @@ export function DocumentDetailPage() {
     return true;
   });
   const openPdf = async () => {
-    const preview = await crmApi.pdfPreview(doc.id);
-    const blob = new Blob([preview.html], { type: "text/html" });
-    window.open(URL.createObjectURL(blob), "_blank");
+    window.open(crmApi.pdfDownloadUrl(doc.id), "_blank");
   };
 
   return (
@@ -78,6 +84,11 @@ export function DocumentDetailPage() {
           <div className="mb-2 flex items-center gap-2">
             <Badge>{doc.type}</Badge>
             <Badge>{doc.status}</Badge>
+            {doc.type === "BOOKING" ? (
+              <Badge className={doc.bookingConfirmed ? "bg-primary text-primary-foreground" : ""}>
+                {doc.bookingConfirmed ? "Confirmed" : "Not confirmed"}
+              </Badge>
+            ) : null}
             <Badge>S.No {doc.caseFile?.serialNo ?? "Standalone"}</Badge>
           </div>
           <h1 className="text-3xl font-semibold">{doc.documentNo}</h1>
@@ -119,7 +130,7 @@ export function DocumentDetailPage() {
             <Trash2 className="h-4 w-4" /> Delete
           </Button>
           <Button onClick={() => sendMutation.mutate()} disabled={sendMutation.isPending}>
-            <Mail className="h-4 w-4" /> Send email
+            <Mail className="h-4 w-4" /> {sendMutation.isPending ? "Sending..." : "Send email"}
           </Button>
           {doc.type === "INVOICE" ? (
             <Button variant="secondary" onClick={() => paidMutation.mutate()}>
@@ -143,7 +154,10 @@ export function DocumentDetailPage() {
               <Info label="Postal code" value={doc.postalCode ?? "-"} />
               <Info label="Address" value={doc.addressLine ?? "-"} />
               <Info label="Extra address" value={doc.extraAddress ?? "-"} />
-              {doc.type !== "BOOKING" ? <Info label="Email status" value={doc.emailStatus ?? "-"} /> : null}
+              {doc.type === "BOOKING" ? <Info label="Booking confirmed" value={doc.bookingConfirmed ? "Yes" : "No"} /> : null}
+              {doc.type === "BOOKING" ? <Info label="Confirmed at" value={doc.confirmedAt ? new Date(doc.confirmedAt).toLocaleString() : "-"} /> : null}
+              <Info label="Email status" value={doc.emailStatus ?? "-"} />
+              {doc.emailError ? <Info label="Email error" value={doc.emailError} /> : null}
               {doc.type !== "BOOKING" ? <Info label="Include" value={includeOptions.length ? includeOptions.join(", ") : "-"} /> : null}
               {doc.type !== "BOOKING" ? <Info label="Price" value={currency(doc.price ?? doc.total)} /> : null}
               {doc.type !== "BOOKING" ? <Info label="Revision" value={`Revision ${doc.revisionNo}`} /> : null}

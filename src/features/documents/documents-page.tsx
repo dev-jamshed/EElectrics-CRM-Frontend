@@ -71,6 +71,18 @@ export function DocumentsPage() {
       accessorKey: "status"
     },
     {
+      header: "Confirmed",
+      accessorFn: (row) => (row.type === "BOOKING" ? (row.bookingConfirmed ? "Yes" : "No") : "-"),
+      cell: ({ row }) =>
+        row.original.type === "BOOKING" ? (
+          <Badge className={row.original.bookingConfirmed ? "bg-primary text-primary-foreground" : ""}>
+            {row.original.bookingConfirmed ? "Confirmed" : "Not confirmed"}
+          </Badge>
+        ) : (
+          <span className="text-muted-foreground">-</span>
+        )
+    },
+    {
       header: "Total",
       accessorFn: (row) => Number(row.total),
       cell: ({ row }) => currency(row.original.total)
