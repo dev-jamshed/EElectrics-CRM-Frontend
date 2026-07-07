@@ -1,8 +1,8 @@
-import { Link, Navigate, Outlet, useLocation } from "react-router-dom";
+import { Link, Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, Bookmark, CirclePlus, ClipboardList, Edit3, Home, LayoutDashboard, LogOut, Mail, Moon, Sun, Users } from "lucide-react";
+import { Bell, Bookmark, CirclePlus, ClipboardList, Home, LayoutDashboard, LogOut, Mail, Moon, Sun, Users } from "lucide-react";
 import type { ComponentType } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -21,7 +21,6 @@ const nav: NavItem[] = [
   { to: "/documents?type=BOOKING&status=SENT&title=Booked%20Bookings", label: "Booked Bookings", icon: Home, section: "Bookings" },
   { to: "/documents?type=BOOKING&status=DRAFT&title=Future%20Bookings", label: "Future Bookings", icon: Bookmark, section: "Bookings" },
   { to: "/documents/new/BOOKING", label: "Create Booking", icon: CirclePlus, section: "Bookings" },
-  { to: "/custom-mails", label: "Custom Mails", icon: Edit3, section: "Bookings" },
   { section: "Quotations" },
   { to: "/documents?type=QUOTATION&status=SENT&title=Quotations", label: "Quotations", icon: Mail, section: "Quotations" },
   { to: "/documents?type=QUOTATION&status=DRAFT&title=Future%20Quotations", label: "Future Quotations", icon: Bookmark, section: "Quotations" },
@@ -35,7 +34,9 @@ type Theme = "light" | "dark" | "system";
 export function AppShell() {
   const { user, logout, isAuthenticated } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const lastNotificationRef = useRef<{ key: string; at: number } | null>(null);
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem("theme") as Theme) || "system");
   const { data: mailboxSummary } = useQuery({
     queryKey: ["mailbox", "summary"],
@@ -59,7 +60,7 @@ export function AppShell() {
 
     const source = new EventSource(crmApi.mailboxStreamUrl(token));
     source.onmessage = (event) => {
-      const payload = JSON.parse(event.data || "{}") as { unreadCount?: number; imported?: number };
+      const payload = JSON.parse(event.data || "{}") as { unreadCount?: number; imported?: number; latestThreadId?: string };
       queryClient.invalidateQueries({ queryKey: ["mailbox"] });
       if (typeof payload.unreadCount === "number") {
         queryClient.setQueryData(["mailbox", "summary"], (current: any) => ({
@@ -68,17 +69,47 @@ export function AppShell() {
         }));
       }
       if (payload.imported) {
-        toast.info(`${payload.imported} new email ${payload.imported > 1 ? "replies" : "reply"} received`);
+        const notificationKey = `${payload.latestThreadId ?? "mailbox"}:${payload.imported}:${payload.unreadCount ?? ""}`;
+        const now = Date.now();
+        if (lastNotificationRef.current?.key === notificationKey && now - lastNotificationRef.current.at < 10000) return;
+        try {
+          const stored = JSON.parse(localStorage.getItem("mailbox-last-notification") || "null") as { key?: string; at?: number } | null;
+          if (stored?.key === notificationKey && stored.at && now - stored.at < 10000) return;
+          localStorage.setItem("mailbox-last-notification", JSON.stringify({ key: notificationKey, at: now }));
+        } catch {
+          // Ignore storage errors; the in-tab guard still prevents immediate repeats.
+        }
+        lastNotificationRef.current = { key: notificationKey, at: now };
+
+        const openLatestThread = () => {
+          if (payload.latestThreadId) {
+            navigate(`/mailbox?thread=${payload.latestThreadId}&scroll=latest`);
+          } else {
+            navigate("/mailbox?scroll=latest");
+          }
+        };
+
+        toast.info(`${payload.imported} new email ${payload.imported > 1 ? "replies" : "reply"} received`, {
+          action: {
+            label: "Open",
+            onClick: openLatestThread
+          }
+        });
         if ("Notification" in window && Notification.permission === "granted") {
-          new Notification("New email reply", {
+          const notification = new Notification("New email reply", {
             body: `${payload.imported} new email ${payload.imported > 1 ? "replies" : "reply"} received in CRM`
           });
+          notification.onclick = () => {
+            window.focus();
+            openLatestThread();
+            notification.close();
+          };
         }
       }
     };
 
     return () => source.close();
-  }, [isAuthenticated, queryClient]);
+  }, [isAuthenticated, navigate, queryClient]);
 
   const toggleTheme = () => {
     setTheme((current) => (current === "light" ? "dark" : current === "dark" ? "system" : "light"));

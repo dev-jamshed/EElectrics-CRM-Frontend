@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Clock, FileText, Inbox, MailOpen, Paperclip, RefreshCw, Reply, Search, Send, Trash2, UserRound, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Clock, FileText, Inbox, MailOpen, Paperclip, Pencil, RefreshCw, Reply, Search, Send, Trash2, UserRound, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -18,15 +18,19 @@ type MailboxModal =
 export function MailboxPage() {
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
+  const latestMessageRef = useRef<HTMLElement | null>(null);
   const [reply, setReply] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
   const [replyToMessageId, setReplyToMessageId] = useState("");
   const [modal, setModal] = useState<MailboxModal>(null);
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [compose, setCompose] = useState({ to: "", subject: "", body: "", files: [] as File[] });
   const [query, setQuery] = useState("");
   const [notificationPermission, setNotificationPermission] = useState(() =>
     "Notification" in window ? Notification.permission : "unsupported"
   );
   const selectedId = searchParams.get("thread") ?? "";
+  const shouldScrollLatest = searchParams.get("scroll") === "latest";
 
   const { data: threads = [], isLoading } = useQuery({
     queryKey: ["mailbox", "threads"],
@@ -51,6 +55,7 @@ export function MailboxPage() {
     enabled: Boolean(activeId),
     refetchInterval: 30000
   });
+  const messages = thread?.messages ?? [];
 
   useEffect(() => {
     if (!selectedId && filteredThreads[0]?.id) setSearchParams({ thread: filteredThreads[0].id }, { replace: true });
@@ -61,6 +66,23 @@ export function MailboxPage() {
     setAttachments([]);
     setReplyToMessageId("");
   }, [activeId]);
+
+  useEffect(() => {
+    if (!activeId || !messages.length) return;
+    if (!shouldScrollLatest && selectedId) return;
+
+    window.setTimeout(() => {
+      latestMessageRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }, 100);
+
+    if (shouldScrollLatest) {
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.delete("scroll");
+        return next;
+      }, { replace: true });
+    }
+  }, [activeId, messages.length, selectedId, setSearchParams, shouldScrollLatest]);
 
   const syncMutation = useMutation({
     mutationFn: crmApi.mailboxSync,
@@ -106,7 +128,18 @@ export function MailboxPage() {
     onError: (error: any) => toast.error(error?.response?.data?.message || "Unable to delete message")
   });
 
-  const messages = thread?.messages ?? [];
+  const composeMutation = useMutation({
+    mutationFn: () => crmApi.mailboxSendEmail(compose),
+    onSuccess: (sentThread) => {
+      setCompose({ to: "", subject: "", body: "", files: [] });
+      setComposeOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["mailbox"] });
+      setSearchParams({ thread: sentThread.id });
+      toast.success("Email sent");
+    },
+    onError: (error: any) => toast.error(error?.response?.data?.message || "Unable to send email")
+  });
+
   const unreadCount = threads.reduce((total, item) => total + (item.unreadCount || 0), 0);
   const canEnableAlerts = notificationPermission === "default";
   const canSendReply = Boolean(reply.trim() || attachments.length);
@@ -131,13 +164,17 @@ export function MailboxPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Button size="sm" onClick={() => setComposeOpen(true)}>
+            <Pencil className="h-4 w-4" />
+            Compose
+          </Button>
           {canEnableAlerts ? (
             <Button size="sm" variant="outline" onClick={enableAlerts}>
               Enable alerts
             </Button>
           ) : null}
-          <Button size="sm" variant="outline" onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending}>
-            <RefreshCw className={cn("h-4 w-4", syncMutation.isPending && "animate-spin")} />
+          <Button size="sm" variant="outline" onClick={() => syncMutation.mutate()} loading={syncMutation.isPending}>
+            <RefreshCw className="h-4 w-4" />
             Refresh
           </Button>
         </div>
@@ -223,9 +260,10 @@ export function MailboxPage() {
               </div>
 
               <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-background/40 p-5">
-                {messages.map((message) => (
+                {messages.map((message, index) => (
                   <article
                     key={message.id}
+                    ref={index === messages.length - 1 ? latestMessageRef : undefined}
                     className={cn(
                       "max-w-3xl rounded-lg border bg-card p-4 shadow-sm",
                       replyToMessageId === message.id && "ring-2 ring-primary",
@@ -284,7 +322,7 @@ export function MailboxPage() {
                         size="sm"
                         variant="ghost"
                         className="text-red-500 hover:text-red-600"
-                        disabled={deleteMessageMutation.isPending}
+                        loading={deleteMessageMutation.isPending}
                         onClick={() => {
                           if (window.confirm("Delete this message from CRM mailbox?")) {
                             deleteMessageMutation.mutate(message.id);
@@ -366,7 +404,7 @@ export function MailboxPage() {
                         </label>
                       </Button>
                     </div>
-                    <Button onClick={() => replyMutation.mutate()} disabled={!canSendReply || replyMutation.isPending}>
+                    <Button onClick={() => replyMutation.mutate()} disabled={!canSendReply} loading={replyMutation.isPending}>
                       <Send className="h-4 w-4" />
                       Send
                     </Button>
@@ -386,7 +424,111 @@ export function MailboxPage() {
       </div>
     </div>
     {modal ? <MailboxPreviewModal modal={modal} onClose={() => setModal(null)} onOpenAttachment={setModal} /> : null}
+    {composeOpen ? (
+      <ComposeEmailModal
+        compose={compose}
+        setCompose={setCompose}
+        sending={composeMutation.isPending}
+        onClose={() => setComposeOpen(false)}
+        onSend={() => composeMutation.mutate()}
+      />
+    ) : null}
     </>
+  );
+}
+
+function ComposeEmailModal({
+  compose,
+  setCompose,
+  sending,
+  onClose,
+  onSend
+}: {
+  compose: { to: string; subject: string; body: string; files: File[] };
+  setCompose: Dispatch<SetStateAction<{ to: string; subject: string; body: string; files: File[] }>>;
+  sending: boolean;
+  onClose: () => void;
+  onSend: () => void;
+}) {
+  const canSend = Boolean(compose.to.trim() && compose.subject.trim() && (compose.body.trim() || compose.files.length));
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center" onMouseDown={onClose}>
+      <div
+        className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border bg-card shadow-2xl"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b px-4 py-3">
+          <div className="font-semibold">New Message</div>
+          <Button size="icon" variant="ghost" onClick={onClose} aria-label="Close compose">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
+          <Input
+            type="email"
+            placeholder="To"
+            value={compose.to}
+            onChange={(event) => setCompose((current) => ({ ...current, to: event.target.value }))}
+          />
+          <Input
+            placeholder="Subject"
+            value={compose.subject}
+            onChange={(event) => setCompose((current) => ({ ...current, subject: event.target.value }))}
+          />
+          <Textarea
+            className="min-h-48 resize-none"
+            placeholder="Write your email..."
+            value={compose.body}
+            onChange={(event) => setCompose((current) => ({ ...current, body: event.target.value }))}
+          />
+          {compose.files.length ? (
+            <div className="flex flex-wrap gap-2">
+              {compose.files.map((file, index) => (
+                <span key={`${file.name}-${index}`} className="inline-flex max-w-full items-center gap-2 rounded-md border bg-secondary px-2.5 py-1 text-xs">
+                  <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                  <span className="max-w-48 truncate">{file.name}</span>
+                  <span className="text-muted-foreground">{formatFileSize(file.size)}</span>
+                  <button
+                    type="button"
+                    className="rounded p-0.5 hover:bg-background"
+                    onClick={() => setCompose((current) => ({ ...current, files: current.files.filter((_, itemIndex) => itemIndex !== index) }))}
+                    aria-label={`Remove ${file.name}`}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <div className="flex items-center justify-between gap-3 border-t p-4">
+          <div>
+            <input
+              id="compose-attachments"
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(event) => {
+                const files = Array.from(event.target.files ?? []);
+                setCompose((current) => ({ ...current, files: [...current.files, ...files].slice(0, 10) }));
+                event.target.value = "";
+              }}
+            />
+            <Button asChild type="button" variant="outline">
+              <label htmlFor="compose-attachments" className="cursor-pointer">
+                <Paperclip className="h-4 w-4" />
+                Attach
+              </label>
+            </Button>
+          </div>
+          <Button onClick={onSend} disabled={!canSend} loading={sending}>
+            <Send className="h-4 w-4" />
+            Send
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 

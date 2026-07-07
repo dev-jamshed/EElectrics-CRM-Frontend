@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { toast } from "sonner";
 import { CopyPlus, Edit, FileText, Mail, Receipt, Trash2, Wallet } from "lucide-react";
 import { crmApi } from "@/lib/api";
-import { currency, displayName } from "@/lib/utils";
+import { currency, displayName, documentDisplayTitle, documentTypeLabel, hasDocumentRevisionActivity } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -69,7 +69,7 @@ export function DocumentDetailPage() {
   if (isLoading || !doc) return <div className="text-muted-foreground">Loading...</div>;
 
   const includeOptions = parseInclude(doc.includeOptions);
-  const hasRevisionDetails = hasRevisionActivity(doc);
+  const hasRevisionDetails = hasDocumentRevisionActivity(doc);
   const connectedRecords = (doc.caseFile?.documents ?? []).filter((item) => {
     if (item.id === doc.id) return false;
     if (doc.type === "BOOKING" && item.type === "BOOKING") return false;
@@ -84,7 +84,8 @@ export function DocumentDetailPage() {
       <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
         <div>
           <div className="mb-2 flex items-center gap-2">
-            <Badge>{doc.type}</Badge>
+            <Badge>{documentTypeLabel(doc.type)}</Badge>
+            {hasRevisionDetails ? <Badge className="bg-primary/10 text-primary">Revision {doc.revisionNo}</Badge> : null}
             <Badge>{doc.status}</Badge>
             {doc.type === "BOOKING" ? (
               <Badge className={doc.bookingConfirmed ? "bg-primary text-primary-foreground" : ""}>
@@ -93,7 +94,7 @@ export function DocumentDetailPage() {
             ) : null}
             <Badge>S.No {doc.caseFile?.serialNo ?? "Standalone"}</Badge>
           </div>
-          <h1 className="text-3xl font-semibold">{doc.documentNo}</h1>
+          <h1 className="text-3xl font-semibold">{documentDisplayTitle(doc)}</h1>
           <p className="text-muted-foreground">{doc.jobTitle}</p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -109,7 +110,7 @@ export function DocumentDetailPage() {
               </Button>
             </>
           ) : null}
-          <Button variant="outline" onClick={() => cloneMutation.mutate()}>
+          <Button variant="outline" onClick={() => cloneMutation.mutate()} loading={cloneMutation.isPending}>
             <CopyPlus className="h-4 w-4" /> New revision
           </Button>
           <Button asChild variant="outline">
@@ -125,15 +126,15 @@ export function DocumentDetailPage() {
             onClick={() => {
               if (window.confirm("Delete this record?")) deleteMutation.mutate();
             }}
-            disabled={deleteMutation.isPending}
+            loading={deleteMutation.isPending}
           >
             <Trash2 className="h-4 w-4" /> Delete
           </Button>
-          <Button onClick={() => sendMutation.mutate()} disabled={sendMutation.isPending}>
+          <Button onClick={() => sendMutation.mutate()} loading={sendMutation.isPending}>
             <Mail className="h-4 w-4" /> {sendMutation.isPending ? "Sending..." : "Send email"}
           </Button>
           {doc.type === "INVOICE" ? (
-            <Button variant="secondary" onClick={() => paidMutation.mutate()}>
+            <Button variant="secondary" onClick={() => paidMutation.mutate()} loading={paidMutation.isPending}>
               <Wallet className="h-4 w-4" /> Mark paid
             </Button>
           ) : null}
@@ -195,10 +196,10 @@ export function DocumentDetailPage() {
             {connectedRecords.map((item) => (
               <Link key={item.id} to={`/documents/${item.id}`} className="flex items-center justify-between gap-3 rounded-md border p-3 transition hover:bg-secondary">
                 <div className="min-w-0">
-                  <div className="truncate font-medium">{item.documentNo}</div>
+                  <div className="truncate font-medium">{documentDisplayTitle(item)}</div>
                   <div className="text-xs text-muted-foreground">{recordDate(item)}</div>
                 </div>
-                <Badge>{item.type}</Badge>
+                <Badge>{documentTypeLabel(item.type)}</Badge>
               </Link>
             ))}
             {!connectedRecords.length ? <div className="text-sm text-muted-foreground">No connected records</div> : null}
@@ -262,9 +263,9 @@ export function DocumentDetailPage() {
           </CardHeader>
           <CardContent className="space-y-2">
             {doc.revisions.map((revision) => (
-              <Link key={revision.id} to={`/documents/${revision.id}`} className="flex items-center justify-between rounded-md border p-3">
-                <span>{revision.documentNo}</span>
-                <span className="text-sm text-muted-foreground">Revision {revision.revisionNo}</span>
+              <Link key={revision.id} to={`/documents/${revision.id}`} className="flex items-center justify-between gap-3 rounded-md border p-3">
+                <span className="min-w-0 truncate font-medium">{documentDisplayTitle(revision)}</span>
+                <span className="shrink-0 text-sm text-muted-foreground">Revision {revision.revisionNo}</span>
               </Link>
             ))}
           </CardContent>
@@ -290,9 +291,6 @@ function parseInclude(value?: string) {
   }
 }
 
-function hasRevisionActivity(doc: DocumentRecord) {
-  return Boolean(doc.parentDocumentId || doc.rootDocumentId && doc.rootDocumentId !== doc.id || doc.revisionNo > 1 || doc.revisions?.length);
-}
 function recordDate(record: { type: string; bookingDate?: string; issueDate?: string; createdAt?: string }) {
   const value = record.type === "BOOKING" ? record.bookingDate : record.issueDate ?? record.createdAt;
   if (!value) return "-";

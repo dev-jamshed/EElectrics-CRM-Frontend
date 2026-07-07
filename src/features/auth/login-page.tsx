@@ -19,6 +19,7 @@ export function LoginPage() {
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
+    if (loading) return;
     setLoading(true);
     try {
       const response = await crmApi.login({ email, password });
@@ -59,7 +60,7 @@ export function LoginPage() {
                 <span className="text-sm font-medium">Password</span>
                 <Input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete="current-password" />
               </label>
-              <Button className="w-full" disabled={loading}>
+              <Button className="w-full" loading={loading}>
                 <LogIn className="h-4 w-4" /> {loading ? "Signing in..." : "Login"}
               </Button>
             </form>
@@ -69,4 +70,3 @@ export function LoginPage() {
     </main>
   );
 }
-

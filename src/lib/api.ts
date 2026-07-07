@@ -49,6 +49,14 @@ export const crmApi = {
     files.forEach((file) => formData.append("attachments", file));
     return (await api.post<MailboxThread>(`/mailbox/threads/${id}/reply-with-attachments`, formData)).data;
   },
+  mailboxSendEmail: async (payload: { to: string; subject: string; body: string; files: File[] }) => {
+    const formData = new FormData();
+    formData.append("to", payload.to);
+    formData.append("subject", payload.subject);
+    formData.append("body", payload.body);
+    payload.files.forEach((file) => formData.append("attachments", file));
+    return (await api.post<MailboxThread>("/mailbox/send", formData)).data;
+  },
   mailboxDeleteMessage: async (messageId: string) =>
     (await api.delete<{ deleted: boolean; threadDeleted: boolean; threadId: string }>(`/mailbox/messages/${messageId}`)).data,
   mailboxMarkRead: async (id: string) => (await api.post<MailboxThread>(`/mailbox/threads/${id}/read`, {})).data,

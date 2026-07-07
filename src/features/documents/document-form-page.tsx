@@ -726,7 +726,7 @@ export function DocumentFormPage() {
             </label>
 
             <div className="flex flex-wrap items-center gap-3 md:col-span-3">
-              <Button onClick={submitDocument} disabled={mutation.isPending || !form.firstName || !form.jobTitle}>
+              <Button onClick={submitDocument} disabled={!form.firstName || !form.jobTitle} loading={mutation.isPending}>
                 <Save className="h-4 w-4" /> Save
               </Button>
               <Button type="button" variant="secondary" onClick={previewBooking}>
@@ -862,7 +862,7 @@ export function DocumentFormPage() {
 
           <div className="space-y-8 md:col-span-3">
             <div className="flex flex-wrap gap-3">
-              <Button onClick={submitDocument} disabled={mutation.isPending || !form.firstName || !form.jobTitle}>
+              <Button onClick={submitDocument} disabled={!form.firstName || !form.jobTitle} loading={mutation.isPending}>
                 Send
               </Button>
               <Button type="button" variant="secondary" onClick={previewPdf}>

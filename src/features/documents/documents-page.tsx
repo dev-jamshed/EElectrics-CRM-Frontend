@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { crmApi } from "@/lib/api";
-import { currency, displayName } from "@/lib/utils";
+import { currency, displayName, documentDisplayTitle, documentTypeLabel, hasDocumentRevisionActivity } from "@/lib/utils";
 import type { DocumentRecord, DocumentType } from "@/types/crm";
 
 export function DocumentsPage() {
@@ -49,14 +49,19 @@ export function DocumentsPage() {
       accessorKey: "documentNo",
       cell: ({ row }) => (
         <Link className="font-medium text-primary hover:underline" to={`/documents/${row.original.id}`}>
-          {row.original.documentNo}
+          {documentDisplayTitle(row.original)}
         </Link>
       )
     },
     {
       header: "Type",
       accessorKey: "type",
-      cell: ({ row }) => <Badge>{row.original.type}</Badge>
+      cell: ({ row }) => (
+        <div className="flex flex-wrap gap-1">
+          <Badge>{documentTypeLabel(row.original.type)}</Badge>
+          {hasDocumentRevisionActivity(row.original) ? <Badge className="bg-primary/10 text-primary">Rev {row.original.revisionNo}</Badge> : null}
+        </div>
+      )
     },
     {
       header: "Client",
@@ -98,7 +103,7 @@ export function DocumentsPage() {
           onClick={() => {
             if (window.confirm("Delete this record?")) deleteMutation.mutate(row.original.id);
           }}
-          disabled={deleteMutation.isPending}
+          loading={deleteMutation.isPending}
         >
           <Trash2 className="h-4 w-4" /> Delete
         </Button>
