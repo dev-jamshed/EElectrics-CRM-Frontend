@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clock, FileText, Inbox, MailOpen, Paperclip, Pencil, RefreshCw, Reply, Search, Send, Trash2, UserRound, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type SetStateAction } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -361,6 +361,12 @@ export function MailboxPage() {
                     placeholder="Type your reply..."
                     value={reply}
                     onChange={(event) => setReply(event.target.value)}
+                    onKeyDown={(event) => {
+                      if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && canSendReply && !replyMutation.isPending) {
+                        event.preventDefault();
+                        replyMutation.mutate();
+                      }
+                    }}
                   />
                   {attachments.length ? (
                     <div className="mt-3 flex flex-wrap gap-2">
@@ -452,6 +458,21 @@ function ComposeEmailModal({
 }) {
   const canSend = Boolean(compose.to.trim() && compose.subject.trim() && (compose.body.trim() || compose.files.length));
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  const submitWithKeyboard = (event: ReactKeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && canSend && !sending) {
+      event.preventDefault();
+      onSend();
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center" onMouseDown={onClose}>
       <div
@@ -470,17 +491,20 @@ function ComposeEmailModal({
             placeholder="To"
             value={compose.to}
             onChange={(event) => setCompose((current) => ({ ...current, to: event.target.value }))}
+            onKeyDown={submitWithKeyboard}
           />
           <Input
             placeholder="Subject"
             value={compose.subject}
             onChange={(event) => setCompose((current) => ({ ...current, subject: event.target.value }))}
+            onKeyDown={submitWithKeyboard}
           />
           <Textarea
             className="min-h-48 resize-none"
             placeholder="Write your email..."
             value={compose.body}
             onChange={(event) => setCompose((current) => ({ ...current, body: event.target.value }))}
+            onKeyDown={submitWithKeyboard}
           />
           {compose.files.length ? (
             <div className="flex flex-wrap gap-2">
@@ -544,6 +568,14 @@ function MailboxPreviewModal({
   const title = modal.type === "message" ? modal.message.subject : modal.attachment.name;
   const attachmentUrl = modal.type === "attachment" ? crmApi.mailboxAttachmentUrl(modal.messageId, modal.attachment.id) : "";
   const mimeType = modal.type === "attachment" ? modal.attachment.mimeType || "" : "";
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onMouseDown={onClose}>
