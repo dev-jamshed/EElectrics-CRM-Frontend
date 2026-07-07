@@ -8,6 +8,7 @@ import { currency, displayName } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { DocumentRecord } from "@/types/crm";
 
 export function DocumentDetailPage() {
   const { id } = useParams();
@@ -68,6 +69,7 @@ export function DocumentDetailPage() {
   if (isLoading || !doc) return <div className="text-muted-foreground">Loading...</div>;
 
   const includeOptions = parseInclude(doc.includeOptions);
+  const hasRevisionDetails = hasRevisionActivity(doc);
   const connectedRecords = (doc.caseFile?.documents ?? []).filter((item) => {
     if (item.id === doc.id) return false;
     if (doc.type === "BOOKING" && item.type === "BOOKING") return false;
@@ -107,11 +109,9 @@ export function DocumentDetailPage() {
               </Button>
             </>
           ) : null}
-          {doc.type !== "BOOKING" ? (
-            <Button variant="outline" onClick={() => cloneMutation.mutate()}>
-              <CopyPlus className="h-4 w-4" /> New revision
-            </Button>
-          ) : null}
+          <Button variant="outline" onClick={() => cloneMutation.mutate()}>
+            <CopyPlus className="h-4 w-4" /> New revision
+          </Button>
           <Button asChild variant="outline">
             <Link to={`/documents/${doc.id}/edit`}>
               <Edit className="h-4 w-4" /> Edit current
@@ -160,7 +160,7 @@ export function DocumentDetailPage() {
               {doc.emailError ? <Info label="Email error" value={doc.emailError} /> : null}
               {doc.type !== "BOOKING" ? <Info label="Include" value={includeOptions.length ? includeOptions.join(", ") : "-"} /> : null}
               {doc.type !== "BOOKING" ? <Info label="Price" value={currency(doc.price ?? doc.total)} /> : null}
-              {doc.type !== "BOOKING" ? <Info label="Revision" value={`Revision ${doc.revisionNo}`} /> : null}
+              {hasRevisionDetails ? <Info label="Revision" value={`Revision ${doc.revisionNo}`} /> : null}
             </div>
             <div>
               <div className="text-sm font-medium">Greeting description</div>
@@ -255,7 +255,7 @@ export function DocumentDetailPage() {
         </Card>
       ) : null}
 
-      {doc.type !== "BOOKING" && doc.revisions?.length ? (
+      {doc.revisions?.length ? (
         <Card>
           <CardHeader>
             <CardTitle>Revision history</CardTitle>
@@ -290,6 +290,9 @@ function parseInclude(value?: string) {
   }
 }
 
+function hasRevisionActivity(doc: DocumentRecord) {
+  return Boolean(doc.parentDocumentId || doc.rootDocumentId && doc.rootDocumentId !== doc.id || doc.revisionNo > 1 || doc.revisions?.length);
+}
 function recordDate(record: { type: string; bookingDate?: string; issueDate?: string; createdAt?: string }) {
   const value = record.type === "BOOKING" ? record.bookingDate : record.issueDate ?? record.createdAt;
   if (!value) return "-";
@@ -304,3 +307,6 @@ function Info({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+
+
+

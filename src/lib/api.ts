@@ -1,5 +1,5 @@
 import axios from "axios";
-import type { Client, DocumentRecord, DocumentType, DashboardSummary, AddressSuggestion } from "@/types/crm";
+import type { Client, DocumentRecord, DocumentType, DashboardSummary, AddressSuggestion, MailboxSummary, MailboxThread } from "@/types/crm";
 
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL ?? "http://localhost:4000/api"
@@ -30,5 +30,13 @@ export const crmApi = {
   markPaid: async (id: string) => (await api.post<DocumentRecord>(`/documents/${id}/mark-paid`, {})).data,
   addresses: async (q: string) => (await api.get<AddressSuggestion[]>("/addresses/search", { params: { q } })).data,
   pdfPreview: async (id: string) => (await api.get<{ html: string }>(`/pdf/documents/${id}`)).data,
-  pdfDownloadUrl: (id: string) => `${String(api.defaults.baseURL ?? "").replace(/\/$/, "")}/pdf/documents/${id}/download`
+  pdfDownloadUrl: (id: string) => `${String(api.defaults.baseURL ?? "").replace(/\/$/, "")}/pdf/documents/${id}/download`,
+  mailboxStreamUrl: (token: string) =>
+    `${String(api.defaults.baseURL ?? "").replace(/\/$/, "")}/mailbox/stream?token=${encodeURIComponent(token)}`,
+  mailboxSummary: async () => (await api.get<MailboxSummary>("/mailbox/summary")).data,
+  mailboxThreads: async () => (await api.get<MailboxThread[]>("/mailbox/threads")).data,
+  mailboxThread: async (id: string) => (await api.get<MailboxThread>(`/mailbox/threads/${id}`)).data,
+  mailboxReply: async (id: string, body: string) => (await api.post<MailboxThread>(`/mailbox/threads/${id}/reply`, { body })).data,
+  mailboxMarkRead: async (id: string) => (await api.post<MailboxThread>(`/mailbox/threads/${id}/read`, {})).data,
+  mailboxSync: async () => (await api.post<{ imported: number }>("/mailbox/sync", {})).data
 };

@@ -114,3 +114,35 @@ export type DashboardSummary = {
   unpaidInvoiceTotal: string | number;
   recentDocuments: DocumentRecord[];
 };
+
+export type MailboxMessage = {
+  id: string;
+  direction: "INBOUND" | "OUTBOUND";
+  fromEmail?: string;
+  fromName?: string;
+  toEmail?: string;
+  subject: string;
+  textBody?: string;
+  htmlBody?: string;
+  isRead: boolean;
+  sentAt?: string;
+  createdAt: string;
+};
+
+export type MailboxThread = {
+  id: string;
+  subject: string;
+  fromEmail?: string;
+  fromName?: string;
+  toEmail?: string;
+  unreadCount: number;
+  lastMessageAt?: string;
+  document?: DocumentRecord | null;
+  client?: Client | null;
+  messages?: MailboxMessage[];
+};
+
+export type MailboxSummary = {
+  unreadCount: number;
+  latest?: MailboxThread | null;
+};

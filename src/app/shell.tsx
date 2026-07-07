@@ -1,10 +1,13 @@
 import { Link, Navigate, Outlet, useLocation } from "react-router-dom";
-import { Bookmark, CirclePlus, ClipboardList, Edit3, Home, LayoutDashboard, LogOut, Mail, Moon, Sun, Users } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Bell, Bookmark, CirclePlus, ClipboardList, Edit3, Home, LayoutDashboard, LogOut, Mail, Moon, Sun, Users } from "lucide-react";
 import type { ComponentType } from "react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/features/auth/auth-provider";
+import { crmApi } from "@/lib/api";
 
 type NavItem =
   | { to: string; label: string; icon: ComponentType<{ className?: string }>; section: string }
@@ -13,6 +16,7 @@ type NavItem =
 const nav: NavItem[] = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, section: "" },
   { to: "/clients", label: "Clients", icon: Users, section: "" },
+  { to: "/mailbox", label: "Email Replies", icon: Bell, section: "" },
   { section: "Bookings" },
   { to: "/documents?type=BOOKING&status=SENT&title=Booked%20Bookings", label: "Booked Bookings", icon: Home, section: "Bookings" },
   { to: "/documents?type=BOOKING&status=DRAFT&title=Future%20Bookings", label: "Future Bookings", icon: Bookmark, section: "Bookings" },
@@ -31,7 +35,14 @@ type Theme = "light" | "dark" | "system";
 export function AppShell() {
   const { user, logout, isAuthenticated } = useAuth();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem("theme") as Theme) || "system");
+  const { data: mailboxSummary } = useQuery({
+    queryKey: ["mailbox", "summary"],
+    queryFn: crmApi.mailboxSummary,
+    enabled: isAuthenticated,
+    refetchInterval: 30000
+  });
 
   useEffect(() => {
     const root = document.documentElement;
@@ -39,6 +50,35 @@ export function AppShell() {
     root.classList.toggle("dark", theme === "dark" || (theme === "system" && systemDark));
     localStorage.setItem("theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return undefined;
+
+    const token = localStorage.getItem("modern-crm-token");
+    if (!token) return undefined;
+
+    const source = new EventSource(crmApi.mailboxStreamUrl(token));
+    source.onmessage = (event) => {
+      const payload = JSON.parse(event.data || "{}") as { unreadCount?: number; imported?: number };
+      queryClient.invalidateQueries({ queryKey: ["mailbox"] });
+      if (typeof payload.unreadCount === "number") {
+        queryClient.setQueryData(["mailbox", "summary"], (current: any) => ({
+          ...(current ?? {}),
+          unreadCount: payload.unreadCount
+        }));
+      }
+      if (payload.imported) {
+        toast.info(`${payload.imported} new email ${payload.imported > 1 ? "replies" : "reply"} received`);
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification("New email reply", {
+            body: `${payload.imported} new email ${payload.imported > 1 ? "replies" : "reply"} received in CRM`
+          });
+        }
+      }
+    };
+
+    return () => source.close();
+  }, [isAuthenticated, queryClient]);
 
   const toggleTheme = () => {
     setTheme((current) => (current === "light" ? "dark" : current === "dark" ? "system" : "light"));
@@ -87,6 +127,9 @@ export function AppShell() {
               >
                 <item.icon className={cn("h-4 w-4", active ? "text-primary-foreground" : "text-muted-foreground")} />
                 <span className="truncate">{item.label}</span>
+                {item.to === "/mailbox" && mailboxSummary?.unreadCount ? (
+                  <span className="ml-auto rounded-full bg-destructive px-2 py-0.5 text-xs text-destructive-foreground">{mailboxSummary.unreadCount}</span>
+                ) : null}
               </Link>
               );
             }
@@ -107,6 +150,12 @@ export function AppShell() {
             <div className="text-lg font-semibold">Simple daily workflow</div>
           </div>
           <div className="flex items-center gap-2">
+            <Button asChild variant="outline">
+              <Link to="/mailbox">
+                <Bell className="h-4 w-4" />
+                {mailboxSummary?.unreadCount ? <span>{mailboxSummary.unreadCount}</span> : <span>Replies</span>}
+              </Link>
+            </Button>
             <Button variant="outline" size="icon" onClick={toggleTheme} title={`Theme: ${theme}`}>
               {theme === "dark" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
             </Button>

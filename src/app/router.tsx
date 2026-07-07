@@ -9,6 +9,7 @@ import { ClientDetailPage } from "@/features/clients/client-detail-page";
 import { LoginPage } from "@/features/auth/login-page";
 import { CustomMailPage } from "@/features/custom-mails/custom-mail-page";
 import { BookingConfirmationPage } from "@/features/bookings/booking-confirmation-page";
+import { MailboxPage } from "@/features/mailbox/mailbox-page";
 
 export const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
@@ -25,6 +26,7 @@ export const router = createBrowserRouter([
       { path: "documents/:id", element: <DocumentDetailPage /> },
       { path: "documents/:id/edit", element: <DocumentFormPage /> },
       { path: "custom-mails", element: <CustomMailPage /> },
+      { path: "mailbox", element: <MailboxPage /> },
       { path: "*", element: <Navigate to="/" replace /> }
     ]
   }
