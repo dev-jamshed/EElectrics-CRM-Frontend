@@ -92,6 +92,11 @@ export function DocumentDetailPage() {
                 {doc.bookingConfirmed ? "Confirmed" : "Not confirmed"}
               </Badge>
             ) : null}
+            {doc.type !== "BOOKING" ? (
+              <Badge className={doc.paymentStatus === "PAID" ? "bg-primary text-primary-foreground" : ""}>
+                {doc.paymentStatus === "PAID" ? "Paid" : "Unpaid"}
+              </Badge>
+            ) : null}
             <Badge>S.No {doc.caseFile?.serialNo ?? "Standalone"}</Badge>
           </div>
           <h1 className="text-3xl font-semibold">{documentDisplayTitle(doc)}</h1>
@@ -133,7 +138,7 @@ export function DocumentDetailPage() {
           <Button onClick={() => sendMutation.mutate()} loading={sendMutation.isPending}>
             <Mail className="h-4 w-4" /> {sendMutation.isPending ? "Sending..." : "Send email"}
           </Button>
-          {doc.type === "INVOICE" ? (
+          {doc.type === "INVOICE" && doc.paymentStatus !== "PAID" ? (
             <Button variant="secondary" onClick={() => paidMutation.mutate()} loading={paidMutation.isPending}>
               <Wallet className="h-4 w-4" /> Mark paid
             </Button>
@@ -157,6 +162,8 @@ export function DocumentDetailPage() {
               <Info label="Extra address" value={doc.extraAddress ?? "-"} />
               {doc.type === "BOOKING" ? <Info label="Booking confirmed" value={doc.bookingConfirmed ? "Yes" : "No"} /> : null}
               {doc.type === "BOOKING" ? <Info label="Confirmed at" value={doc.confirmedAt ? new Date(doc.confirmedAt).toLocaleString() : "-"} /> : null}
+              {doc.type !== "BOOKING" ? <Info label="Payment status" value={doc.paymentStatus === "PAID" ? "Paid" : "Unpaid"} /> : null}
+              {doc.type !== "BOOKING" ? <Info label="Paid at" value={doc.paidAt ? formatDateTime(doc.paidAt) : "-"} /> : null}
               <Info label="Email status" value={doc.emailStatus ?? "-"} />
               {doc.emailError ? <Info label="Email error" value={doc.emailError} /> : null}
               {doc.type !== "BOOKING" ? <Info label="Include" value={includeOptions.length ? includeOptions.join(", ") : "-"} /> : null}
@@ -295,6 +302,16 @@ function recordDate(record: { type: string; bookingDate?: string; issueDate?: st
   const value = record.type === "BOOKING" ? record.bookingDate : record.issueDate ?? record.createdAt;
   if (!value) return "-";
   return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(value));
+}
+
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(value));
 }
 
 function Info({ label, value }: { label: string; value: string }) {

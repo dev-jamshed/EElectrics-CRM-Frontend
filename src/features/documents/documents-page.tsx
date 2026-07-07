@@ -75,18 +75,39 @@ export function DocumentsPage() {
       header: "Status",
       accessorKey: "status"
     },
-    {
-      header: "Confirmed",
-      accessorFn: (row) => (row.type === "BOOKING" ? (row.bookingConfirmed ? "Yes" : "No") : "-"),
-      cell: ({ row }) =>
-        row.original.type === "BOOKING" ? (
-          <Badge className={row.original.bookingConfirmed ? "bg-primary text-primary-foreground" : ""}>
-            {row.original.bookingConfirmed ? "Confirmed" : "Not confirmed"}
-          </Badge>
-        ) : (
-          <span className="text-muted-foreground">-</span>
-        )
-    },
+    ...(type === "BOOKING"
+      ? [
+          {
+            header: "Confirmed",
+            accessorFn: (row: DocumentRecord) => (row.bookingConfirmed ? "Yes" : "No"),
+            cell: ({ row }: { row: { original: DocumentRecord } }) => (
+              <Badge className={row.original.bookingConfirmed ? "bg-primary text-primary-foreground" : ""}>
+                {row.original.bookingConfirmed ? "Confirmed" : "Not confirmed"}
+              </Badge>
+            )
+          } satisfies ColumnDef<DocumentRecord>
+        ]
+      : []),
+    ...(type && type !== "BOOKING"
+      ? [
+          {
+            header: "Payment",
+            accessorFn: (row: DocumentRecord) => row.paymentStatus,
+            cell: ({ row }: { row: { original: DocumentRecord } }) => (
+              <Badge className={row.original.paymentStatus === "PAID" ? "bg-primary text-primary-foreground" : ""}>
+                {row.original.paymentStatus === "PAID" ? "Paid" : "Unpaid"}
+              </Badge>
+            )
+          } satisfies ColumnDef<DocumentRecord>,
+          {
+            header: "Paid at",
+            accessorFn: (row: DocumentRecord) => row.paidAt ?? "",
+            cell: ({ row }: { row: { original: DocumentRecord } }) => (
+              <span className="text-sm text-muted-foreground">{row.original.paidAt ? formatDateTime(row.original.paidAt) : "-"}</span>
+            )
+          } satisfies ColumnDef<DocumentRecord>
+        ]
+      : []),
     {
       header: "Total",
       accessorFn: (row) => Number(row.total),
@@ -140,4 +161,14 @@ export function DocumentsPage() {
       </Card>
     </div>
   );
+}
+
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(value));
 }
