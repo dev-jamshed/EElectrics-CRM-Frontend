@@ -36,7 +36,21 @@ export const crmApi = {
   mailboxSummary: async () => (await api.get<MailboxSummary>("/mailbox/summary")).data,
   mailboxThreads: async () => (await api.get<MailboxThread[]>("/mailbox/threads")).data,
   mailboxThread: async (id: string) => (await api.get<MailboxThread>(`/mailbox/threads/${id}`)).data,
-  mailboxReply: async (id: string, body: string) => (await api.post<MailboxThread>(`/mailbox/threads/${id}/reply`, { body })).data,
+  mailboxAttachmentUrl: (messageId: string, attachmentId: string) => {
+    const token = localStorage.getItem("modern-crm-token") ?? "";
+    return `${String(api.defaults.baseURL ?? "").replace(/\/$/, "")}/mailbox/messages/${messageId}/attachments/${attachmentId}?token=${encodeURIComponent(token)}`;
+  },
+  mailboxReply: async (id: string, body: string, replyToMessageId?: string) =>
+    (await api.post<MailboxThread>(`/mailbox/threads/${id}/reply`, { body, replyToMessageId })).data,
+  mailboxReplyWithAttachments: async (id: string, body: string, files: File[], replyToMessageId?: string) => {
+    const formData = new FormData();
+    formData.append("body", body);
+    if (replyToMessageId) formData.append("replyToMessageId", replyToMessageId);
+    files.forEach((file) => formData.append("attachments", file));
+    return (await api.post<MailboxThread>(`/mailbox/threads/${id}/reply-with-attachments`, formData)).data;
+  },
+  mailboxDeleteMessage: async (messageId: string) =>
+    (await api.delete<{ deleted: boolean; threadDeleted: boolean; threadId: string }>(`/mailbox/messages/${messageId}`)).data,
   mailboxMarkRead: async (id: string) => (await api.post<MailboxThread>(`/mailbox/threads/${id}/read`, {})).data,
   mailboxSync: async () => (await api.post<{ imported: number }>("/mailbox/sync", {})).data
 };

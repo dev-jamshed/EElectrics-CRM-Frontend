@@ -127,6 +127,26 @@ export type MailboxMessage = {
   isRead: boolean;
   sentAt?: string;
   createdAt: string;
+  replyToMessageId?: string;
+  replyToMessage?: {
+    id: string;
+    direction: "INBOUND" | "OUTBOUND";
+    fromEmail?: string;
+    fromName?: string;
+    subject: string;
+    textBody?: string;
+    sentAt?: string;
+    createdAt: string;
+  } | null;
+  attachments?: MailboxAttachment[];
+};
+
+export type MailboxAttachment = {
+  id: string;
+  name: string;
+  mimeType?: string;
+  size?: number;
+  createdAt: string;
 };
 
 export type MailboxThread = {
