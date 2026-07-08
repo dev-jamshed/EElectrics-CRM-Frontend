@@ -9,9 +9,8 @@ import {
   useReactTable
 } from "@tanstack/react-table";
 import { useMemo, useState } from "react";
-import { Download, FileSpreadsheet, FileText, Printer } from "lucide-react";
+import { Download, FileSpreadsheet, FileText, Printer, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 
 type DataTableProps<T> = {
   data: T[];
@@ -86,38 +85,41 @@ export function DataTable<T>({ data, columns, searchPlaceholder = "Search..." }:
   };
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <Input
-          value={globalFilter}
-          onChange={(event) => setGlobalFilter(event.target.value)}
-          placeholder={searchPlaceholder}
-          className="max-w-sm"
-        />
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={exportCsv}>
+          <Button type="button" variant="outline" size="sm" onClick={exportCsv} className="border-[#d9e0ea] bg-white text-[#344054] hover:bg-[#f8fafc]">
             <Download className="h-4 w-4" /> CSV
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={exportExcel}>
+          <Button type="button" variant="outline" size="sm" onClick={exportExcel} className="border-[#d9e0ea] bg-white text-[#344054] hover:bg-[#f8fafc]">
             <FileSpreadsheet className="h-4 w-4" /> Excel
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => printTable("Records PDF")}>
+          <Button type="button" variant="outline" size="sm" onClick={() => printTable("Records PDF")} className="border-[#d9e0ea] bg-white text-[#344054] hover:bg-[#f8fafc]">
             <FileText className="h-4 w-4" /> PDF
           </Button>
-          <Button type="button" variant="outline" size="sm" onClick={() => printTable("Records")}>
+          <Button type="button" variant="outline" size="sm" onClick={() => printTable("Records")} className="border-[#d9e0ea] bg-white text-[#344054] hover:bg-[#f8fafc]">
             <Printer className="h-4 w-4" /> Print
           </Button>
         </div>
+        <label className="relative w-full sm:ml-auto sm:w-[220px]">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#667085]" />
+          <input
+            value={globalFilter}
+            onChange={(event) => setGlobalFilter(event.target.value)}
+            placeholder={searchPlaceholder}
+            className="h-8 w-full rounded-md border border-[#d9e0ea] bg-white px-3 pl-9 text-xs outline-none transition placeholder:text-[#98a2b3] focus:border-[#ef1228] focus:ring-2 focus:ring-[#ef1228]/10"
+          />
+        </label>
       </div>
-      <div className="overflow-hidden rounded-lg border bg-card">
-        <table className="w-full text-sm">
-          <thead className="bg-secondary/70">
+      <div className="overflow-x-auto rounded-lg border border-[#dfe5ee] bg-white">
+        <table className="w-full min-w-[920px] text-left text-sm">
+          <thead className="bg-[#f8fafc] text-xs font-bold uppercase tracking-wide text-[#667085]">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
-                  <th key={header.id} className="px-4 py-3 text-left font-medium text-muted-foreground">
+                  <th key={header.id} className="px-4 py-3 text-left font-bold">
                     {header.isPlaceholder ? null : (
-                      <button className="font-medium" onClick={header.column.getToggleSortingHandler()}>
+                      <button className="font-bold" onClick={header.column.getToggleSortingHandler()}>
                         {flexRender(header.column.columnDef.header, header.getContext())}
                       </button>
                     )}
@@ -126,12 +128,12 @@ export function DataTable<T>({ data, columns, searchPlaceholder = "Search..." }:
               </tr>
             ))}
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-[#edf1f6]">
             {table.getRowModel().rows.length ? (
               table.getRowModel().rows.map((row) => (
-                <tr key={row.id} className="border-t transition hover:bg-secondary/40">
+                <tr key={row.id} className="transition hover:bg-[#fbfcfe]">
                   {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="px-4 py-3">
+                    <td key={cell.id} className="px-4 py-5 align-middle">
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>
                   ))}
@@ -139,7 +141,7 @@ export function DataTable<T>({ data, columns, searchPlaceholder = "Search..." }:
               ))
             ) : (
               <tr>
-                <td className="px-4 py-10 text-center text-muted-foreground" colSpan={columns.length}>
+                <td className="px-4 py-10 text-center text-[#667085]" colSpan={columns.length}>
                   No records found.
                 </td>
               </tr>
@@ -148,14 +150,14 @@ export function DataTable<T>({ data, columns, searchPlaceholder = "Search..." }:
         </table>
       </div>
       <div className="flex items-center justify-between">
-        <div className="text-sm text-muted-foreground">
+        <div className="text-sm text-[#667085]">
           Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount() || 1}
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
+          <Button variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()} className="border-[#d9e0ea] bg-white text-[#344054] hover:bg-[#f8fafc]">
             Previous
           </Button>
-          <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
+          <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()} className="border-[#d9e0ea] bg-white text-[#344054] hover:bg-[#f8fafc]">
             Next
           </Button>
         </div>

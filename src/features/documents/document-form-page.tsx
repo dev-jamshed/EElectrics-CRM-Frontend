@@ -2,13 +2,40 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import { ArrowLeft, Calendar, Check, ChevronDown, FileText, Hash, Home, ImagePlus, Mail, Phone, PoundSterling, Save, Search, Trash2, User } from "lucide-react";
+import {
+  ArrowLeft,
+  Banknote,
+  Calendar,
+  Check,
+  ChevronDown,
+  CreditCard,
+  Download,
+  FileText,
+  GripVertical,
+  Hash,
+  Home,
+  ImagePlus,
+  Mail,
+  Monitor,
+  Percent,
+  Phone,
+  Plus,
+  PoundSterling,
+  Receipt,
+  Save,
+  Search,
+  Send,
+  Settings,
+  Smartphone,
+  Trash2,
+  User
+} from "lucide-react";
 import { AddressCombobox } from "@/features/addresses/address-combobox";
 import { crmApi } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Textarea } from "@/components/ui/input";
-import type { Attachment, DocumentRecord, DocumentType, LineItem } from "@/types/crm";
+import type { Attachment, Client, DocumentRecord, DocumentType, LineItem } from "@/types/crm";
 
 const includeChoices = [
   { value: "labour", label: "Labour" },
@@ -19,7 +46,16 @@ const includeChoices = [
 const defaultBookingNote =
   "A 12-month warranty is provided on all workmanship. Materials supplied by E Electrics are covered by the manufacturer's warranty.";
 
+const defaultInvoiceNote = defaultBookingNote;
+
 const oldCrmLogoUrl = "https://res.cloudinary.com/djneoqoqk/image/upload/v1734727264/email_logo_aqoox6.png";
+
+const defaultInvoiceRows: LineItem[] = [
+  { kind: "LABOUR", title: "Labour installation", description: "", quantity: 1, unitPrice: 0, total: 0 },
+  { kind: "MATERIAL", title: "Materials", description: "", quantity: 1, unitPrice: 0, total: 0 }
+];
+
+const invoiceInputClass = "border-[#cfd7e3] bg-white text-[#101828] placeholder:text-[#98a2b3] [color-scheme:light]";
 
 function labels(type: DocumentType) {
   if (type === "BOOKING") {
@@ -241,6 +277,7 @@ function buildOldAmountPreviewHtml(form: {
   addressLine: string;
   extraAddress: string;
   jobTitle: string;
+  greeting: string;
   body: string;
   emailNote: string;
   includeOptions: string[];
@@ -249,7 +286,8 @@ function buildOldAmountPreviewHtml(form: {
   const title = form.type === "QUOTATION" ? "Quotation" : "Invoice";
   const clientName = [form.firstName, form.lastName].filter(Boolean).join(" ");
   const includeLabel = includeTotalLabel(form.includeOptions);
-  const notes = richText(form.emailNote);
+    const notes = richText(form.emailNote);
+    const greeting = richText(form.greeting);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -311,7 +349,7 @@ function buildOldAmountPreviewHtml(form: {
       <div class="description-header"><p>Description</p><p>Price</p></div>
       <div class="description-body">
         <div class="job-description-div"><p>${escapeHtml(form.jobTitle || "")}</p></div>
-        <div class="description-div">${richText(form.body) || "-"}</div>
+        <div class="description-div">${[greeting, richText(form.body)].filter(Boolean).join("<br />") || "-"}</div>
       </div>
       <div class="description-footer">
         ${includeLabel ? `<div class="discount-price-footer"><p>${escapeHtml(includeLabel)}</p><p>${formatPounds(form.total)}</p></div>` : ""}
@@ -384,6 +422,49 @@ function readFile(file: File): Promise<Attachment> {
   });
 }
 
+function lineItemTotal(item: LineItem) {
+  const quantity = Number(item.quantity || 0);
+  const unitPrice = Number(item.unitPrice || 0);
+  return quantity * unitPrice;
+}
+
+function normalizeLineItem(item: LineItem): LineItem {
+  const quantity = Number(item.quantity || 0);
+  const unitPrice = Number(item.unitPrice || 0);
+  return {
+    kind: item.kind,
+    title: item.title,
+    description: item.description ?? "",
+    quantity,
+    unitPrice,
+    total: quantity * unitPrice
+  };
+}
+
+function includeOptionsFromLineItems(items: LineItem[]) {
+  const includes = new Set<string>();
+  if (items.some((item) => item.kind === "LABOUR")) includes.add("labour");
+  if (items.some((item) => item.kind === "MATERIAL")) includes.add("material");
+  if (!includes.size) includes.add("total_paid");
+  return Array.from(includes);
+}
+
+function invoiceBodyFromItems(notes: string, items: LineItem[]) {
+  const rows = items
+    .filter((item) => item.title.trim())
+    .map((item) => {
+      const description = item.description?.trim() ? ` - ${escapeHtml(item.description)}` : "";
+      return `<li><strong>${escapeHtml(item.title)}</strong>${description}: ${formatPounds(lineItemTotal(item))}</li>`;
+    })
+    .join("");
+  const itemHtml = rows ? `<ul>${rows}</ul>` : "";
+  return [itemHtml, richText(notes)].filter(Boolean).join("");
+}
+
+function clientDisplayName(firstName: string, lastName: string) {
+  return [firstName, lastName].filter(Boolean).join(" ") || "-";
+}
+
 export function DocumentFormPage() {
   const { id, type } = useParams();
   const [searchParams] = useSearchParams();
@@ -403,15 +484,23 @@ export function DocumentFormPage() {
     queryFn: () => crmApi.document(sourceDocumentId!),
     enabled: Boolean(sourceDocumentId)
   });
+  const { data: clients = [] } = useQuery({
+    queryKey: ["clients", "invoice-form"],
+    queryFn: () => crmApi.clients(),
+    enabled: documentType === "INVOICE"
+  });
 
   const seed = useMemo<DocumentRecord | undefined>(() => existing ?? source, [existing, source]);
   const copyDocumentText = !isEdit && Boolean(source);
   const [addressLookup, setAddressLookup] = useState({ query: "", nonce: 0 });
   const submitLockedRef = useRef(false);
+  const [invoiceNotesOpen, setInvoiceNotesOpen] = useState(true);
+  const [invoicePreviewMode, setInvoicePreviewMode] = useState<"desktop" | "mobile">("desktop");
 
   const [form, setForm] = useState({
     type: documentType,
     status: "DRAFT",
+    clientId: "",
     firstName: "",
     lastName: "",
     email: "",
@@ -424,7 +513,7 @@ export function DocumentFormPage() {
     jobTitle: "",
     description: "",
     greeting: "",
-    emailNote: documentType === "BOOKING" ? defaultBookingNote : "",
+    emailNote: documentType === "BOOKING" || documentType === "INVOICE" ? defaultInvoiceNote : "",
     issueDate: new Date().toISOString().slice(0, 10),
     dueDate: "",
     bookingDate: "",
@@ -441,7 +530,7 @@ export function DocumentFormPage() {
     emailBody: "",
     pdfNotes: "",
     attachments: [] as Attachment[],
-    lineItems: [] as LineItem[]
+    lineItems: documentType === "INVOICE" ? defaultInvoiceRows : ([] as LineItem[])
   });
 
   const copy = labels(form.type as DocumentType);
@@ -452,6 +541,7 @@ export function DocumentFormPage() {
       ...current,
       type: isEdit ? seed.type : documentType,
       status: isEdit ? seed.status ?? "DRAFT" : "DRAFT",
+      clientId: seed.clientId ?? seed.client?.id ?? "",
       firstName: seed.client?.firstName ?? "",
       lastName: seed.client?.lastName ?? "",
       email: seed.client?.email ?? "",
@@ -464,7 +554,7 @@ export function DocumentFormPage() {
       jobTitle: seed.jobTitle ?? "",
       description: copyDocumentText ? "" : seed.description ?? "",
       greeting: copyDocumentText ? "" : seed.greeting ?? "",
-      emailNote: copyDocumentText ? "" : seed.emailNote ?? "",
+      emailNote: copyDocumentText ? defaultInvoiceNote : seed.emailNote ?? (documentType === "INVOICE" ? defaultInvoiceNote : ""),
       issueDate: seed.issueDate?.slice(0, 10) ?? current.issueDate,
       dueDate: seed.dueDate?.slice(0, 10) ?? "",
       bookingDate: seed.bookingDate?.slice(0, 10) ?? "",
@@ -481,7 +571,7 @@ export function DocumentFormPage() {
       emailBody: copyDocumentText ? "" : seed.emailBody ?? "",
       pdfNotes: copyDocumentText ? "" : seed.pdfNotes ?? "",
       attachments: copyDocumentText ? [] : seed.attachments ?? [],
-      lineItems: seed.lineItems ?? []
+      lineItems: seed.lineItems?.length ? seed.lineItems : current.lineItems
     }));
   }, [seed, isEdit, documentType, copyDocumentText]);
 
@@ -508,37 +598,65 @@ export function DocumentFormPage() {
   const labourAmount = hasLabour ? Number(form.labourPrice || 0) : 0;
   const materialAmount = hasMaterial ? Number(form.materialPrice || 0) : 0;
   const calculatedAmount = labourAmount + materialAmount;
-  const documentAmount = hasLabour || hasMaterial ? calculatedAmount : Number(form.price || 0);
+  const invoiceLineItems = form.lineItems
+    .filter((item) => item.title.trim() || item.description?.trim() || Number(item.unitPrice || 0))
+    .map(normalizeLineItem);
+  const invoiceAmount = invoiceLineItems.reduce((sum, item) => sum + lineItemTotal(item), 0);
+  const legacyAmount = hasLabour || hasMaterial ? calculatedAmount : Number(form.price || 0);
+  const documentAmount = form.type === "INVOICE" ? invoiceAmount : legacyAmount;
+  const computedIncludeOptions = form.type === "INVOICE" ? includeOptionsFromLineItems(invoiceLineItems) : form.includeOptions;
 
-  const selectedLineItems: LineItem[] = [
-    ...(hasLabour
-      ? [
-          {
-            kind: "LABOUR" as const,
-            title: "Labour",
-            description: form.labourDescription,
-            quantity: 1,
-            unitPrice: labourAmount,
-            total: labourAmount
-          }
-        ]
-      : []),
-    ...(hasMaterial
-      ? [
-          {
-            kind: "MATERIAL" as const,
-            title: "Material",
-            description: form.materialDescription,
-            quantity: 1,
-            unitPrice: materialAmount,
-            total: materialAmount
-          }
-        ]
-      : [])
-  ];
+  const selectedLineItems: LineItem[] =
+    form.type === "INVOICE"
+      ? invoiceLineItems
+      : [
+          ...(hasLabour
+            ? [
+                {
+                  kind: "LABOUR" as const,
+                  title: "Labour",
+                  description: form.labourDescription,
+                  quantity: 1,
+                  unitPrice: labourAmount,
+                  total: labourAmount
+                }
+              ]
+            : []),
+          ...(hasMaterial
+            ? [
+                {
+                  kind: "MATERIAL" as const,
+                  title: "Material",
+                  description: form.materialDescription,
+                  quantity: 1,
+                  unitPrice: materialAmount,
+                  total: materialAmount
+                }
+              ]
+            : [])
+        ];
 
   const validateInclude = () => {
     if (form.type === "BOOKING") return true;
+    if (form.type === "INVOICE") {
+      if (!invoiceLineItems.length) {
+        toast.error("Add at least one invoice item");
+        return false;
+      }
+      if (invoiceLineItems.some((item) => !item.title.trim())) {
+        toast.error("Every invoice item needs a description");
+        return false;
+      }
+      if (invoiceLineItems.some((item) => Number(item.quantity || 0) <= 0)) {
+        toast.error("Every invoice item needs quantity");
+        return false;
+      }
+      if (!Number.isFinite(invoiceAmount) || invoiceAmount <= 0) {
+        toast.error("Invoice total must be greater than zero");
+        return false;
+      }
+      return true;
+    }
     if (!form.includeOptions.length) {
       toast.error("Select at least one include option");
       return false;
@@ -582,21 +700,30 @@ export function DocumentFormPage() {
       addressLine: form.addressLine,
       extraAddress: form.extraAddress,
       jobTitle: form.jobTitle,
-      body: form.description || form.emailBody,
+      greeting: form.greeting,
+      body: form.type === "INVOICE" ? invoiceBodyFromItems(form.description || form.emailBody, selectedLineItems) : form.description || form.emailBody,
       emailNote: form.emailNote,
-      includeOptions: form.includeOptions,
+      includeOptions: computedIncludeOptions,
       total: documentAmount
     });
     window.open(URL.createObjectURL(new Blob([html], { type: "text/html" })), "_blank");
   };
 
+  const downloadPdf = () => {
+    if (isEdit && existing?.id) {
+      window.open(crmApi.pdfDownloadUrl(existing.id), "_blank");
+      return;
+    }
+    toast.error("Save draft first, then download PDF");
+  };
+
   const mutation = useMutation({
-    mutationFn: () => {
+    mutationFn: (overrides?: { sendMail?: boolean; status?: string }) => {
       if (!validateInclude()) throw new Error("Validation failed");
       const payload = {
         type: form.type,
-        status: form.status,
-        clientId: isEdit ? existing?.clientId : source?.clientId,
+        status: overrides?.status ?? form.status,
+        clientId: form.clientId || (isEdit ? existing?.clientId : source?.clientId),
         client: {
           firstName: form.firstName,
           lastName: form.lastName,
@@ -606,7 +733,7 @@ export function DocumentFormPage() {
         caseFileId: isEdit ? existing?.caseFileId : source?.caseFileId,
         sourceDocumentId,
         jobTitle: form.jobTitle,
-        description: form.description,
+        description: form.type === "INVOICE" ? invoiceBodyFromItems(form.description, selectedLineItems) : form.description,
         greeting: form.greeting,
         emailNote: form.emailNote,
         cc: form.cc,
@@ -619,8 +746,8 @@ export function DocumentFormPage() {
         dueDate: form.dueDate || undefined,
         bookingDate: form.type === "BOOKING" ? form.bookingDate || form.issueDate || undefined : undefined,
         price: documentAmount,
-        includeOptions: form.includeOptions,
-        sendMail: form.sendMail,
+        includeOptions: computedIncludeOptions,
+        sendMail: overrides?.sendMail ?? form.sendMail,
         sendImages: form.sendImages,
         invoiceCheck: form.invoiceCheck,
         emailSubject: form.emailSubject,
@@ -631,10 +758,10 @@ export function DocumentFormPage() {
       };
       return isEdit ? crmApi.updateDocument(id!, payload) : crmApi.createDocument(payload);
     },
-    onSuccess: (saved) => {
+    onSuccess: (saved, variables) => {
       queryClient.invalidateQueries({ queryKey: ["documents"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
-      toast.success(form.sendMail ? "Saved and marked for email" : "Saved successfully");
+      toast.success((variables?.sendMail ?? form.sendMail) ? "Saved and marked for email" : "Saved successfully");
       navigate(`/documents/${saved.id}`);
     },
     onError: (error) => {
@@ -646,11 +773,431 @@ export function DocumentFormPage() {
     }
   });
 
-  const submitDocument = () => {
+  const submitDocument = (overrides?: { sendMail?: boolean; status?: string }) => {
     if (submitLockedRef.current || mutation.isPending) return;
     submitLockedRef.current = true;
-    mutation.mutate();
+    mutation.mutate(overrides);
   };
+
+  const updateInvoiceItem = (index: number, patch: Partial<LineItem>) => {
+    setForm((current) => ({
+      ...current,
+      lineItems: current.lineItems.map((item, itemIndex) => (itemIndex === index ? normalizeLineItem({ ...item, ...patch }) : item))
+    }));
+  };
+
+  const addInvoiceItem = (kind: LineItem["kind"] = "OTHER") => {
+    setForm((current) => ({
+      ...current,
+      lineItems: [
+        ...current.lineItems,
+        {
+          kind,
+          title: kind === "LABOUR" ? "Labour" : kind === "MATERIAL" ? "Materials" : "Service item",
+          description: "",
+          quantity: 1,
+          unitPrice: 0,
+          total: 0
+        }
+      ]
+    }));
+  };
+
+  const removeInvoiceItem = (index: number) => {
+    setForm((current) => ({
+      ...current,
+      lineItems: current.lineItems.filter((_, itemIndex) => itemIndex !== index)
+    }));
+  };
+
+  const addInvoiceDiscount = () => {
+    setForm((current) => ({
+      ...current,
+      lineItems: [
+        ...current.lineItems,
+        {
+          kind: "OTHER",
+          title: "Discount",
+          description: "",
+          quantity: 1,
+          unitPrice: -10,
+          total: -10
+        }
+      ]
+    }));
+  };
+
+  const addInvoiceVat = () => {
+    const subtotal = form.lineItems.reduce((sum, item) => sum + lineItemTotal(item), 0);
+    const vat = Math.max(0, subtotal * 0.2);
+    setForm((current) => ({
+      ...current,
+      lineItems: [
+        ...current.lineItems,
+        {
+          kind: "OTHER",
+          title: "VAT",
+          description: "20%",
+          quantity: 1,
+          unitPrice: Number(vat.toFixed(2)),
+          total: Number(vat.toFixed(2))
+        }
+      ]
+    }));
+  };
+
+  const applyInvoiceTemplate = (template: "standard" | "labour" | "materials" | "service") => {
+    const templates: Record<typeof template, LineItem[]> = {
+      standard: defaultInvoiceRows,
+      labour: [{ kind: "LABOUR", title: "Labour installation", description: "", quantity: 1, unitPrice: 0, total: 0 }],
+      materials: [{ kind: "MATERIAL", title: "Materials supplied", description: "", quantity: 1, unitPrice: 0, total: 0 }],
+      service: [
+        { kind: "LABOUR", title: "Electrical service visit", description: "", quantity: 1, unitPrice: 0, total: 0 },
+        { kind: "OTHER", title: "Testing certificate", description: "", quantity: 1, unitPrice: 0, total: 0 }
+      ]
+    };
+    setForm((current) => ({ ...current, lineItems: templates[template].map(normalizeLineItem) }));
+  };
+
+  if (form.type === "INVOICE") {
+    const subtotal = form.lineItems.reduce((sum, item) => sum + lineItemTotal(item), 0);
+    const normalizedRows = form.lineItems.map(normalizeLineItem);
+
+    return (
+      <div className="mx-auto max-w-[1540px] space-y-3 text-[#101828] [color-scheme:light]">
+        <div className="flex items-center justify-between">
+          <h1 className="text-[28px] font-bold tracking-[-0.02em]">{isEdit ? "Edit Invoice" : "New Invoice"}</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" className="h-10 border-[#d9e0ea] bg-white px-5 text-[#101828] hover:bg-[#f8fafc]" onClick={() => submitDocument({ sendMail: false, status: "DRAFT" })} loading={mutation.isPending}>
+              <Save className="h-4 w-4" /> Save Draft
+            </Button>
+            <Button asChild size="icon" variant="outline" className="h-10 w-10 border-[#d9e0ea] bg-white text-[#101828] hover:bg-[#f8fafc]">
+              <Link to="/documents">
+                <Settings className="h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-[#dfe5ee] bg-white px-8 py-4 shadow-sm">
+          <div className="grid grid-cols-4 items-center gap-7">
+            {[
+              ["Client", "Add client details"],
+              ["Items", "Add items and amounts"],
+              ["Notes", "Email and PDF text"],
+              ["Preview", "Review and send"]
+            ].map(([step, caption], index) => (
+              <div key={step} className="flex items-center gap-4">
+                <span className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold ${index < 2 ? "bg-[#ef1228] text-white" : "bg-[#d7dde6] text-[#344054]"}`}>
+                  {index + 1}
+                </span>
+                <div>
+                  <div className="text-sm font-semibold">{step}</div>
+                  <div className="text-xs text-[#53627a]">{caption}</div>
+                </div>
+                {index < 3 ? <div className="ml-auto hidden h-px flex-1 bg-[#cfd7e3] xl:block" /> : null}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-3 xl:grid-cols-[minmax(620px,1fr)_minmax(560px,.98fr)]">
+          <div className="space-y-3">
+            <div className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-base font-bold">Client & Invoice Details</h2>
+              <div className="grid gap-5 md:grid-cols-2">
+                <label className="space-y-1.5">
+                  <span className="text-xs font-medium">Client</span>
+                  <InvoiceClientPicker
+                    clients={clients}
+                    value={clientDisplayName(form.firstName, form.lastName) === "-" ? "" : clientDisplayName(form.firstName, form.lastName)}
+                    onType={(value) => {
+                      const [firstName = "", ...rest] = value.trimStart().split(/\s+/);
+                      setForm({ ...form, clientId: "", firstName, lastName: rest.join(" "), email: "", phone: "" });
+                    }}
+                    onSelect={(client) => {
+                      const recentDocument = client.documents?.find((item) => item.addressLine || item.extraAddress || item.postalCode);
+                      setForm({
+                        ...form,
+                        clientId: client.id,
+                        firstName: client.firstName ?? "",
+                        lastName: client.lastName ?? "",
+                        email: client.email ?? "",
+                        phone: client.phone ?? "",
+                        postalCode: recentDocument?.postalCode ?? form.postalCode,
+                        addressLine: recentDocument?.addressLine ?? form.addressLine,
+                        extraAddress: recentDocument?.extraAddress ?? form.extraAddress
+                      });
+                    }}
+                  />
+                </label>
+                <div className="grid gap-4">
+                  <IconField icon={Mail} label="Email" type="email" value={form.email} onChange={(email) => setForm({ ...form, email })} inputClassName={invoiceInputClass} iconClassName="border-[#cfd7e3] bg-white text-[#53627a]" />
+                  <IconField icon={Phone} label="Phone" value={form.phone} onChange={(phone) => setForm({ ...form, phone })} inputClassName={invoiceInputClass} iconClassName="border-[#cfd7e3] bg-white text-[#53627a]" />
+                </div>
+                <div className="grid gap-4">
+                  <IconField icon={Calendar} label="Invoice Date" type="date" value={form.issueDate} onChange={(issueDate) => setForm({ ...form, issueDate })} inputClassName={invoiceInputClass} iconClassName="border-[#cfd7e3] bg-white text-[#53627a]" />
+                  <IconField icon={Calendar} label="Due Date" type="date" value={form.dueDate} onChange={(dueDate) => setForm({ ...form, dueDate })} inputClassName={invoiceInputClass} iconClassName="border-[#cfd7e3] bg-white text-[#53627a]" />
+                </div>
+                <IconField icon={Hash} label="Reference / PO (optional)" value={form.cc} onChange={(cc) => setForm({ ...form, cc })} inputClassName={invoiceInputClass} iconClassName="border-[#cfd7e3] bg-white text-[#53627a]" />
+                <IconField icon={FileText} label="Job Description" value={form.jobTitle} onChange={(jobTitle) => setForm({ ...form, jobTitle })} inputClassName={invoiceInputClass} iconClassName="border-[#cfd7e3] bg-white text-[#53627a]" />
+                <label className="space-y-1.5">
+                  <span className="text-xs font-medium">Postal Code</span>
+                  <div className="flex">
+                    <Input className={`rounded-r-none ${invoiceInputClass}`} value={form.postalCode} onChange={(event) => setForm({ ...form, postalCode: event.target.value })} />
+                    <Button type="button" className="rounded-l-none bg-[#ef1228] hover:bg-[#d90f22]" size="icon" onClick={searchPostcodeAddress}>
+                      <Search className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs font-medium">Address</span>
+                  <AddressCombobox
+                    value={form.addressLine}
+                    onChange={(value, selected) => setForm({ ...form, addressLine: value, selectedAddress: selected })}
+                    lookupQuery={addressLookup.query}
+                    lookupNonce={addressLookup.nonce}
+                    inputClassName={invoiceInputClass}
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+              <h2 className="mb-3 text-base font-bold">Items</h2>
+              <div className="overflow-x-auto rounded-md border border-[#cfd7e3]">
+                <div className="min-w-[680px]">
+                <div className="grid grid-cols-[26px_minmax(300px,1fr)_150px_150px_44px] bg-[#f8fafc] px-3 py-3 text-xs font-bold">
+                  <span />
+                  <span>Description</span>
+                  <span>Price (GBP)</span>
+                  <span className="text-right">Amount (GBP)</span>
+                  <span />
+                </div>
+                {form.lineItems.map((item, index) => (
+                  <div key={index} className="grid grid-cols-[26px_minmax(300px,1fr)_150px_150px_44px] items-center gap-2 border-t border-[#e4e9f1] px-3 py-2">
+                    <GripVertical className="h-4 w-4 text-[#53627a]" />
+                    <Input className={`h-9 ${invoiceInputClass}`} value={item.title} onChange={(event) => updateInvoiceItem(index, { title: event.target.value })} />
+                    <Input className={`h-9 text-right ${invoiceInputClass}`} type="number" value={String(item.unitPrice)} onChange={(event) => updateInvoiceItem(index, { unitPrice: Number(event.target.value) })} />
+                    <div className="pr-2 text-right text-sm font-medium">{lineItemTotal(item).toFixed(2)}</div>
+                    <Button type="button" size="icon" variant="ghost" className="h-8 w-8 text-[#ef1228] hover:bg-red-50" onClick={() => removeInvoiceItem(index)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+                </div>
+              </div>
+              <div className="mt-3 flex items-start justify-between gap-4">
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" className="border-red-200 bg-white text-[#ef1228] hover:bg-red-50" onClick={() => addInvoiceItem("OTHER")}>
+                    <Plus className="h-4 w-4" /> Add item
+                  </Button>
+                  <Button type="button" variant="outline" className="border-[#d5dce7] bg-white text-[#101828] hover:bg-[#f8fafc]" onClick={addInvoiceDiscount}>
+                    <Percent className="h-4 w-4" /> Add discount
+                  </Button>
+                </div>
+                <div className="w-[230px] space-y-2 text-sm">
+                  <div className="flex justify-between text-[#53627a]"><span>Subtotal</span><span>{subtotal.toFixed(2)}</span></div>
+                  <div className="flex justify-between border-t border-[#d5dce7] pt-2 text-lg font-bold"><span>Total</span><span>{subtotal.toFixed(2)}</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div className="hidden">
+              <h2 className="mb-4 text-base font-bold">Payment Settings</h2>
+              <div className="grid gap-5 md:grid-cols-3">
+                <label className="space-y-1.5">
+                  <span className="text-xs font-medium">Payment method</span>
+                  <select className={`h-10 w-full rounded-md px-3 text-sm ${invoiceInputClass}`}>
+                    <option>Bank Transfer</option>
+                  </select>
+                </label>
+                <div className="space-y-1.5">
+                  <span className="text-xs font-medium">Online card payment</span>
+                  <ToggleSwitch label="Include payment link in email" checked={form.sendMail} onChange={(sendMail) => setForm({ ...form, sendMail })} />
+                </div>
+                <div className="space-y-1.5">
+                  <span className="text-xs font-medium">Payment status</span>
+                  <div className="inline-flex h-10 items-center rounded-full bg-[#ffdf9e] px-5 text-sm font-bold text-[#8a4a00]">Unpaid</div>
+                </div>
+                <div className="hidden rounded-md border bg-background p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-sm font-semibold">
+                      <Banknote className="h-4 w-4 text-[#DD2D3E]" /> Bank transfer
+                    </div>
+                    <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">Default</span>
+                  </div>
+                  <div className="space-y-1 text-xs text-muted-foreground">
+                    <p>Barclays Bank</p>
+                    <p>E electrics limited</p>
+                    <p>Account 23929884 · Sort 20-25-19</p>
+                  </div>
+                </div>
+                <div className="hidden rounded-md border bg-background p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-sm font-semibold">
+                      <CreditCard className="h-4 w-4 text-[#DD2D3E]" /> Online card payment
+                    </div>
+                    <span className="rounded-full bg-secondary px-2 py-1 text-xs font-semibold">Email only</span>
+                  </div>
+                  <ToggleSwitch label="Attach images in email" checked={form.sendImages} onChange={(sendImages) => setForm({ ...form, sendImages })} />
+                </div>
+                <label className="hidden space-y-2 md:col-span-2">
+                  <span className="text-xs font-medium">Invoice Notes</span>
+                  <RichTextarea value={form.description} onChange={(description) => setForm({ ...form, description })} minHeight="min-h-28" />
+                </label>
+                <label className="hidden space-y-2 md:col-span-2">
+                  <span className="text-xs font-medium">PDF Notes</span>
+                  <Textarea value={form.emailNote} onChange={(event) => setForm({ ...form, emailNote: event.target.value })} className="min-h-24" />
+                </label>
+                <label className="hidden space-y-2 md:col-span-2">
+                  <span className="text-xs font-medium">Images</span>
+                  <Input type="file" multiple accept="image/*" onChange={handleImages} />
+                </label>
+                {form.attachments.length ? (
+                  <div className="grid gap-3 md:col-span-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {form.attachments.map((attachment, index) => (
+                      <div key={`${attachment.name}-${index}`} className="overflow-hidden rounded-md border">
+                        <img src={attachment.dataUrl} alt={attachment.name} className="h-28 w-full object-cover" />
+                        <div className="flex items-center justify-between gap-2 p-2">
+                          <span className="truncate text-xs text-muted-foreground">{attachment.name}</span>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            onClick={() =>
+                              setForm((current) => ({
+                                ...current,
+                                attachments: current.attachments.filter((_, itemIndex) => itemIndex !== index)
+                              }))
+                            }
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            <div className="overflow-hidden rounded-lg border border-[#dfe5ee] bg-white shadow-sm">
+              <button
+                type="button"
+                className="flex h-14 w-full items-center justify-between px-5 text-sm font-semibold text-[#101828]"
+                onClick={() => setInvoiceNotesOpen((current) => !current)}
+              >
+                <span>Additional Notes (optional)</span>
+                <ChevronDown className={`h-4 w-4 transition ${invoiceNotesOpen ? "rotate-180" : ""}`} />
+              </button>
+              {invoiceNotesOpen ? (
+                <div className="grid gap-5 border-t border-[#edf1f6] p-5">
+                  <label className="space-y-2">
+                    <span className="text-xs font-medium">Greeting Description</span>
+                    <RichTextarea value={form.greeting} onChange={(greeting) => setForm({ ...form, greeting })} minHeight="min-h-24" />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-xs font-medium">Invoice Description</span>
+                    <RichTextarea value={form.description} onChange={(description) => setForm({ ...form, description })} minHeight="min-h-28" />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-xs font-medium">Notes</span>
+                    <RichTextarea value={form.emailNote} onChange={(emailNote) => setForm({ ...form, emailNote })} minHeight="min-h-24" />
+                  </label>
+                  <label className="space-y-2">
+                    <span className="text-xs font-medium">Images</span>
+                    <Input className={invoiceInputClass} type="file" multiple accept="image/*" onChange={handleImages} />
+                  </label>
+                  {form.attachments.length ? (
+                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                      {form.attachments.map((attachment, index) => (
+                        <div key={`${attachment.name}-${index}`} className="overflow-hidden rounded-md border border-[#dfe5ee]">
+                          <img src={attachment.dataUrl} alt={attachment.name} className="h-28 w-full object-cover" />
+                          <div className="flex items-center justify-between gap-2 p-2">
+                            <span className="truncate text-xs text-[#667085]">{attachment.name}</span>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 text-[#ef1228] hover:bg-red-50"
+                              onClick={() =>
+                                setForm((current) => ({
+                                  ...current,
+                                  attachments: current.attachments.filter((_, itemIndex) => itemIndex !== index)
+                                }))
+                              }
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="flex flex-wrap gap-3">
+                    <ToggleSwitch label="Send Images in Mail ?" checked={form.sendImages} onChange={(sendImages) => setForm({ ...form, sendImages })} />
+                    <MailToggleButton checked={form.sendMail} onChange={(sendMail) => setForm({ ...form, sendMail })} />
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            <div className="rounded-lg border border-[#dfe5ee] bg-white p-4 shadow-sm">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <Button type="button" variant="outline" className="h-12 border-[#cfd7e3] bg-white text-[#101828] hover:bg-[#f8fafc]" onClick={() => submitDocument({ sendMail: false, status: "DRAFT" })} loading={mutation.isPending}>
+                  <Save className="h-5 w-5" /> Save Draft
+                </Button>
+                <Button type="button" variant="outline" className="h-12 border-[#cfd7e3] bg-white text-[#101828] hover:bg-[#f8fafc]" onClick={previewPdf}>
+                  <FileText className="h-5 w-5" /> Preview PDF
+                </Button>
+                <Button className="h-12 bg-[#ef1228] text-white hover:bg-[#d90f22]" onClick={() => submitDocument()} disabled={!form.firstName || !form.jobTitle} loading={mutation.isPending}>
+                  <Send className="h-5 w-5" /> Send Invoice
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4 xl:sticky xl:top-4 xl:self-start">
+            <InvoicePreviewPanel
+              documentNo={existing?.documentNo ?? "Draft"}
+              issueDate={form.issueDate}
+              dueDate={form.dueDate}
+              clientName={clientDisplayName(form.firstName, form.lastName)}
+              addressLine={form.addressLine}
+              extraAddress={form.extraAddress}
+              jobTitle={form.jobTitle}
+              greeting={form.greeting}
+              items={normalizedRows}
+              subtotal={subtotal}
+              notes={form.emailNote}
+              previewMode={invoicePreviewMode}
+              onPreviewModeChange={setInvoicePreviewMode}
+              onDownloadPdf={downloadPdf}
+            />
+            <div className="hidden rounded-lg border bg-card p-4 shadow-sm">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Total Due</div>
+                  <div className="text-3xl font-semibold">{formatPounds(documentAmount)}</div>
+                </div>
+                <MailToggleButton checked={form.sendMail} onChange={(sendMail) => setForm({ ...form, sendMail })} />
+              </div>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <Button type="button" variant="outline" onClick={() => submitDocument({ sendMail: false, status: "DRAFT" })} loading={mutation.isPending}>
+                  <Save className="h-4 w-4" /> Save Draft
+                </Button>
+                <Button type="button" variant="secondary" onClick={previewPdf}>
+                  <FileText className="h-4 w-4" /> Preview PDF
+                </Button>
+                <Button onClick={() => submitDocument()} disabled={!form.firstName || !form.jobTitle} loading={mutation.isPending}>
+                  <Send className="h-4 w-4" /> Send Invoice
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (form.type === "BOOKING") {
     return (
@@ -726,7 +1273,7 @@ export function DocumentFormPage() {
             </label>
 
             <div className="flex flex-wrap items-center gap-3 md:col-span-3">
-              <Button onClick={submitDocument} disabled={!form.firstName || !form.jobTitle} loading={mutation.isPending}>
+              <Button onClick={() => submitDocument()} disabled={!form.firstName || !form.jobTitle} loading={mutation.isPending}>
                 <Save className="h-4 w-4" /> Save
               </Button>
               <Button type="button" variant="secondary" onClick={previewBooking}>
@@ -862,7 +1409,7 @@ export function DocumentFormPage() {
 
           <div className="space-y-8 md:col-span-3">
             <div className="flex flex-wrap gap-3">
-              <Button onClick={submitDocument} disabled={!form.firstName || !form.jobTitle} loading={mutation.isPending}>
+              <Button onClick={() => submitDocument()} disabled={!form.firstName || !form.jobTitle} loading={mutation.isPending}>
                 Send
               </Button>
               <Button type="button" variant="secondary" onClick={previewPdf}>
@@ -878,6 +1425,234 @@ export function DocumentFormPage() {
           </div>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function InvoicePreviewPanel({
+  documentNo,
+  issueDate,
+  dueDate,
+  clientName,
+  addressLine,
+  extraAddress,
+  jobTitle,
+  greeting,
+  items,
+  subtotal,
+  notes,
+  previewMode,
+  onPreviewModeChange,
+  onDownloadPdf
+}: {
+  documentNo: string;
+  issueDate: string;
+  dueDate: string;
+  clientName: string;
+  addressLine: string;
+  extraAddress: string;
+  jobTitle: string;
+  greeting: string;
+  items: LineItem[];
+  subtotal: number;
+  notes: string;
+  previewMode: "desktop" | "mobile";
+  onPreviewModeChange: (mode: "desktop" | "mobile") => void;
+  onDownloadPdf: () => void;
+}) {
+  return (
+    <div className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+      <div className="mb-4 flex items-center justify-between">
+        <div className="text-base font-bold">Live Preview</div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className={`flex h-9 w-11 items-center justify-center rounded-md border ${
+              previewMode === "desktop" ? "border-[#ef1228] bg-red-50 text-[#ef1228]" : "border-[#d5dce7] bg-white text-[#53627a]"
+            }`}
+            onClick={() => onPreviewModeChange("desktop")}
+          >
+            <Monitor className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            className={`flex h-9 w-11 items-center justify-center rounded-md border ${
+              previewMode === "mobile" ? "border-[#ef1228] bg-red-50 text-[#ef1228]" : "border-[#d5dce7] bg-white text-[#53627a]"
+            }`}
+            onClick={() => onPreviewModeChange("mobile")}
+          >
+            <Smartphone className="h-4 w-4" />
+          </button>
+          <button type="button" className="ml-6 flex h-10 items-center gap-2 rounded-md border border-[#d5dce7] bg-white px-4 text-sm font-medium" onClick={onDownloadPdf}>
+            <Download className="h-4 w-4" /> Download PDF
+          </button>
+        </div>
+      </div>
+      <div className={`${previewMode === "mobile" ? "mx-auto max-w-[390px] px-4 py-5" : "mx-auto max-w-[720px] px-8 py-7"} border border-[#d5dce7] bg-white text-black shadow-lg`}>
+        <div>
+          <div className="mb-5 flex items-start justify-between gap-4">
+            <img src={oldCrmLogoUrl} alt="E Electrics" className={`h-auto ${previewMode === "mobile" ? "w-40" : "w-56"}`} />
+            <div className="text-right">
+              <div className={`${previewMode === "mobile" ? "text-xl" : "text-2xl"} font-bold uppercase text-[#ef1228]`}>Invoice</div>
+              <div className="text-base font-bold">{documentNo}</div>
+            </div>
+          </div>
+          <div className={`grid text-[12px] leading-5 ${previewMode === "mobile" ? "gap-4" : "gap-8 sm:grid-cols-2"}`}>
+            <div>
+              <p className="font-bold">E Electrics Ltd</p>
+              <p>57 Beckhampton Road</p>
+              <p>Bath, BA2 1BL</p>
+              <p>United Kingdom</p>
+              <p>Registration No: 12418331</p>
+              <p>NAPIT Member No: 65513</p>
+              <p>info@eelectrics.co.uk&nbsp;&nbsp;|&nbsp;&nbsp;0800 999 1452</p>
+            </div>
+            <div className="grid gap-5">
+              <div className="grid grid-cols-[100px_1fr] gap-x-4">
+                <span className="font-bold">Invoice Date:</span><span>{formatOldDate(issueDate)}</span>
+                <span className="font-bold">Due Date:</span><span>{dueDate ? formatOldDate(dueDate) : "-"}</span>
+              </div>
+              <div className="rounded border border-[#d5dce7] bg-[#fbfcfe] p-3">
+                <p className="font-bold">Bill To:</p>
+                <p className="font-bold">{clientName}</p>
+                <p>{addressLine || "-"}</p>
+                {extraAddress ? <p>{extraAddress}</p> : null}
+              </div>
+            </div>
+          </div>
+          <div className="mt-8 border-t-2 border-[#ef1228] pt-3">
+            {jobTitle ? <div className="mb-2 text-sm font-semibold">{jobTitle}</div> : null}
+            {greeting ? <div className="mb-3 whitespace-pre-wrap text-xs leading-5">{greeting}</div> : null}
+            <div className={`${previewMode === "mobile" ? "grid-cols-[1fr_72px_74px] px-2 text-[10px]" : "grid-cols-[1fr_120px_130px] px-3 text-xs"} grid bg-[#ef1228] py-2 font-bold text-white`}>
+              <span>Description</span>
+              <span className="text-right">Price (GBP)</span>
+              <span className="text-right">Amount</span>
+            </div>
+            <div className="divide-y divide-dashed divide-[#b8c2d0]">
+              {items.length ? (
+                items.map((item, index) => (
+                  <div key={`${item.title}-${index}`} className={`${previewMode === "mobile" ? "grid-cols-[1fr_72px_74px] gap-1 px-2 text-[10px]" : "grid-cols-[1fr_120px_130px] gap-3 px-3 text-xs"} grid py-3`}>
+                    <div>{item.title || "-"}</div>
+                    <div className="text-right">{Number(item.unitPrice || 0).toFixed(2)}</div>
+                    <div className="text-right">{lineItemTotal(item).toFixed(2)}</div>
+                  </div>
+                ))
+              ) : (
+                <div className="px-4 py-8 text-sm text-slate-600">-</div>
+              )}
+            </div>
+            <div className={`ml-auto mt-5 space-y-2 text-xs ${previewMode === "mobile" ? "w-full" : "w-[310px]"}`}>
+              <div className="flex justify-between"><span>Subtotal</span><span>{formatPounds(subtotal)}</span></div>
+            </div>
+            <div className={`ml-auto mt-2 grid grid-cols-[1fr_120px] bg-[#ef1228] px-4 py-3 font-bold text-white ${previewMode === "mobile" ? "w-full text-sm" : "w-[310px] text-base"}`}>
+              <span>Total Due</span>
+              <span className="text-right">{formatPounds(subtotal)}</span>
+            </div>
+          </div>
+          <div className="mt-4 border-b border-[#cfd7e3] pb-5 text-xs">
+            <p className="font-bold text-[#ef1228]">Notes:</p>
+            <p className="mt-2 whitespace-pre-wrap leading-5">{notes || "Thank you for your business. Payment is due within 14 days from the invoice date."}</p>
+          </div>
+          <div className={`grid gap-6 border-b border-[#ef1228] py-4 text-xs ${previewMode === "mobile" ? "" : "sm:grid-cols-2"}`}>
+            <div>
+              <p className="mb-2 font-bold text-[#ef1228]">Payment Method</p>
+              <p className="font-bold">Bank Transfer</p>
+              <p><strong>Account Name:</strong> E Electrics Ltd</p>
+              <p><strong>Sort Code:</strong> 20-25-19</p>
+              <p><strong>Account No:</strong> 23929884</p>
+            </div>
+            <div>
+              <p>Alternative payment option:</p>
+              <p className="font-bold text-[#ef1228]">Online card payment</p>
+              <p>A secure payment link is included in the email.</p>
+            </div>
+          </div>
+          <p className="pt-3 text-center text-xs">Thank you for choosing E Electrics Ltd.</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InvoiceClientPicker({
+  clients,
+  value,
+  onType,
+  onSelect
+}: {
+  clients: Client[];
+  value: string;
+  onType: (value: string) => void;
+  onSelect: (client: Client) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const normalizedValue = value.trim().toLowerCase();
+  const filteredClients = clients
+    .filter((client) => {
+      if (!normalizedValue) return true;
+      const haystack = [client.firstName, client.lastName, client.email, client.phone, client.company].filter(Boolean).join(" ").toLowerCase();
+      return haystack.includes(normalizedValue);
+    })
+    .slice(0, 8);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!wrapperRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [open]);
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <div className="flex h-11 items-center rounded-md border border-[#cfd7e3] bg-white px-3">
+        <User className="mr-2 h-4 w-4 text-[#53627a]" />
+        <Input
+          className="h-9 border-0 bg-transparent px-0 py-0 text-[#101828] shadow-none [color-scheme:light] placeholder:text-[#98a2b3] focus:ring-0"
+          value={value}
+          onFocus={() => setOpen(true)}
+          onChange={(event) => {
+            onType(event.target.value);
+            setOpen(true);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setOpen(false);
+            if (event.key === "Enter" && filteredClients[0]) {
+              event.preventDefault();
+              onSelect(filteredClients[0]);
+              setOpen(false);
+            }
+          }}
+          placeholder="Select or type client"
+        />
+        <button type="button" className="text-[#53627a]" onClick={() => setOpen((current) => !current)}>
+          <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
+        </button>
+      </div>
+      {open ? (
+        <div className="absolute left-0 right-0 top-[calc(100%+0.35rem)] z-[1000] max-h-72 overflow-auto rounded-md border border-[#dfe5ee] bg-white p-1 shadow-xl">
+          {filteredClients.length ? (
+            filteredClients.map((client) => (
+              <button
+                key={client.id}
+                type="button"
+                className="block w-full rounded px-3 py-2 text-left hover:bg-[#f3f6fa]"
+                onClick={() => {
+                  onSelect(client);
+                  setOpen(false);
+                }}
+              >
+                <span className="block truncate text-sm font-semibold text-[#101828]">{clientDisplayName(client.firstName, client.lastName ?? "")}</span>
+                <span className="block truncate text-xs text-[#667085]">{[client.email, client.phone].filter(Boolean).join(" | ") || "No contact details"}</span>
+              </button>
+            ))
+          ) : (
+            <div className="px-3 py-2 text-sm text-[#667085]">No clients found</div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -971,7 +1746,7 @@ function MailToggleButton({ checked, onChange }: { checked: boolean; onChange: (
   return (
     <button
       type="button"
-      className="inline-flex items-center gap-3 rounded-md border px-3 py-2 text-sm font-medium transition hover:bg-secondary"
+      className="inline-flex items-center gap-3 rounded-md border border-[#d5dce7] bg-white px-3 py-2 text-sm font-medium text-[#101828] transition hover:bg-[#f8fafc]"
       aria-pressed={checked}
       onClick={() => onChange(!checked)}
     >
@@ -990,22 +1765,26 @@ function IconField({
   label,
   value,
   onChange,
-  type = "text"
+  type = "text",
+  inputClassName,
+  iconClassName
 }: {
   icon: typeof User;
   label: string;
   value: string;
   onChange: (value: string) => void;
   type?: string;
+  inputClassName?: string;
+  iconClassName?: string;
 }) {
   return (
     <label className="space-y-2">
       <span className="text-xs font-medium">{label}</span>
       <div className="flex">
-        <div className="flex h-10 w-10 items-center justify-center rounded-l-md border border-r-0 text-muted-foreground">
+        <div className={`flex h-10 w-10 items-center justify-center rounded-l-md border border-r-0 text-muted-foreground ${iconClassName ?? ""}`}>
           <Icon className="h-4 w-4" />
         </div>
-        <Input className="rounded-l-none" type={type} value={value} onChange={(event) => onChange(event.target.value)} />
+        <Input className={`rounded-l-none ${inputClassName ?? ""}`} type={type} value={value} onChange={(event) => onChange(event.target.value)} />
       </div>
     </label>
   );
@@ -1021,7 +1800,7 @@ function ToggleSwitch({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex items-center gap-3 text-sm font-medium text-muted-foreground">
+    <label className="flex items-center gap-3 text-sm font-medium text-[#53627a]">
       <button
         type="button"
         aria-pressed={checked}
@@ -1045,8 +1824,8 @@ function RichTextarea({
   minHeight: string;
 }) {
   return (
-    <div className="overflow-hidden rounded-md border bg-background">
-      <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2 text-[11px] text-muted-foreground">
+    <div className="overflow-hidden rounded-md border border-[#cfd7e3] bg-white [color-scheme:light]">
+      <div className="flex flex-wrap items-center gap-2 border-b border-[#e4e9f1] bg-white px-3 py-2 text-[11px] text-[#53627a]">
         <span>File</span>
         <span>Edit</span>
         <span>View</span>
@@ -1055,23 +1834,23 @@ function RichTextarea({
         <span>Tools</span>
         <span>Table</span>
       </div>
-      <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2 text-xs text-muted-foreground">
-        <button type="button" className="rounded px-2 py-1 hover:bg-secondary">Undo</button>
-        <button type="button" className="rounded px-2 py-1 hover:bg-secondary">Redo</button>
-        <select className="h-7 rounded border bg-background px-2">
+      <div className="flex flex-wrap items-center gap-2 border-b border-[#e4e9f1] bg-white px-3 py-2 text-xs text-[#53627a]">
+        <button type="button" className="rounded px-2 py-1 hover:bg-[#f3f6fa]">Undo</button>
+        <button type="button" className="rounded px-2 py-1 hover:bg-[#f3f6fa]">Redo</button>
+        <select className="h-7 rounded border border-[#cfd7e3] bg-white px-2 text-[#101828]">
           <option>Paragraph</option>
         </select>
-        <select className="h-7 rounded border bg-background px-2">
+        <select className="h-7 rounded border border-[#cfd7e3] bg-white px-2 text-[#101828]">
           <option>System Font</option>
         </select>
-        <button type="button" className="rounded px-2 py-1 font-bold hover:bg-secondary">B</button>
-        <button type="button" className="rounded px-2 py-1 italic hover:bg-secondary">I</button>
-        <button type="button" className="rounded px-2 py-1 underline hover:bg-secondary">U</button>
-        <button type="button" className="rounded px-2 py-1 hover:bg-secondary">Link</button>
-        <button type="button" className="rounded px-2 py-1 hover:bg-secondary">List</button>
+        <button type="button" className="rounded px-2 py-1 font-bold hover:bg-[#f3f6fa]">B</button>
+        <button type="button" className="rounded px-2 py-1 italic hover:bg-[#f3f6fa]">I</button>
+        <button type="button" className="rounded px-2 py-1 underline hover:bg-[#f3f6fa]">U</button>
+        <button type="button" className="rounded px-2 py-1 hover:bg-[#f3f6fa]">Link</button>
+        <button type="button" className="rounded px-2 py-1 hover:bg-[#f3f6fa]">List</button>
       </div>
       <Textarea
-        className={`${minHeight} rounded-none border-0 focus:ring-0`}
+        className={`${minHeight} rounded-none border-0 bg-white text-[#101828] placeholder:text-[#98a2b3] focus:ring-0`}
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />

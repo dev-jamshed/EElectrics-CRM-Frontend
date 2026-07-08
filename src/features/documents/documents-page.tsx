@@ -6,7 +6,6 @@ import { toast } from "sonner";
 import { DataTable } from "@/components/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { crmApi } from "@/lib/api";
 import { currency, displayName, documentDisplayTitle, documentTypeLabel, hasDocumentRevisionActivity } from "@/lib/utils";
 import type { DocumentRecord, DocumentType } from "@/types/crm";
@@ -133,15 +132,20 @@ export function DocumentsPage() {
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+    <div className="mx-auto max-w-[1540px] space-y-5 text-[#101828]">
+      <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
         <div>
-          <h1 className="text-3xl font-semibold">Work</h1>
-          <p className="text-muted-foreground">Bookings, invoices and quotations follow the old CRM saved/send workflow.</p>
+          <h1 className="text-[32px] font-bold tracking-[-0.03em]">Work</h1>
+          <p className="text-sm text-[#53627a]">Bookings, invoices and quotations follow the CRM saved/send workflow.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {createActions.map((action, index) => (
-            <Button key={action.type} asChild variant={index === 0 ? "default" : index === 1 ? "secondary" : "outline"}>
+            <Button
+              key={action.type}
+              asChild
+              variant={index === 0 ? "default" : "outline"}
+              className={index === 0 ? "h-10 bg-[#ef1228] px-5 text-white hover:bg-[#d90f22]" : "h-10 border-[#d9e0ea] bg-white px-5 text-[#101828] hover:bg-[#f8fafc]"}
+            >
               <Link to={`/documents/new/${action.type}`}>
                 {index === 0 ? <FilePlus2 className="h-4 w-4" /> : null}
                 {action.label}
@@ -151,14 +155,15 @@ export function DocumentsPage() {
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{title}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? <div className="py-10 text-muted-foreground">Loading records...</div> : <DataTable data={data} columns={columns} />}
-        </CardContent>
-      </Card>
+      <section className="overflow-hidden rounded-lg border border-[#dfe5ee] bg-white shadow-sm">
+        <div className="border-b border-[#edf1f6] px-4 py-3">
+          <h2 className="text-base font-bold">{title}</h2>
+          <p className="text-xs text-[#667085]">Search, export, print and manage records.</p>
+        </div>
+        <div className="p-4">
+          {isLoading ? <div className="py-10 text-center text-[#667085]">Loading records...</div> : <DataTable data={data} columns={columns} searchPlaceholder="Search records" />}
+        </div>
+      </section>
     </div>
   );
 }

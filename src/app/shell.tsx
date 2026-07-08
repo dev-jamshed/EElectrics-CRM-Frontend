@@ -1,6 +1,6 @@
 import { Link, Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, Bookmark, CirclePlus, ClipboardList, Home, LayoutDashboard, LogOut, Mail, Moon, Sun, Users } from "lucide-react";
+import { Bell, Bookmark, CirclePlus, ClipboardList, FileText, Home, LayoutDashboard, LogOut, Mail, Moon, Settings, Sun, UserCog, Users } from "lucide-react";
 import type { ComponentType } from "react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -115,6 +115,8 @@ export function AppShell() {
     setTheme((current) => (current === "light" ? "dark" : current === "dark" ? "system" : "light"));
   };
 
+  const useModernTemplate = true;
+
   const isActiveLink = (to: string) => {
     const target = new URL(to, window.location.origin);
 
@@ -132,6 +134,85 @@ export function AppShell() {
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (useModernTemplate) {
+    return (
+      <div className="min-h-screen bg-[#f5f7fb] text-[#0f172a]">
+        <aside className="fixed inset-y-0 left-0 z-20 hidden w-[260px] bg-[#08182b] text-white shadow-2xl md:flex md:flex-col">
+          <div className="px-5 py-6">
+            <img src="https://res.cloudinary.com/djneoqoqk/image/upload/v1734727264/email_logo_aqoox6.png" alt="E Electrics" className="h-auto w-[220px]" />
+          </div>
+          <nav className="flex-1 space-y-6 overflow-y-auto px-3 pb-4">
+            <InvoiceNavGroup
+              title=""
+              items={[
+                { to: "/", label: "Dashboard", icon: Home },
+              ]}
+              activePath={location.pathname}
+              activeSearch={location.search}
+            />
+            <InvoiceNavGroup
+              title="Work"
+              items={[
+                { to: "/clients", label: "Clients", icon: Users },
+                { to: "/documents?type=BOOKING&status=SENT&title=Booked%20Bookings", label: "Bookings", icon: ClipboardList },
+                { to: "/documents?type=QUOTATION&status=SENT&title=Quotations", label: "Quotations", icon: FileText }
+              ]}
+              activePath={location.pathname}
+              activeSearch={location.search}
+            />
+            <InvoiceNavGroup
+              title="Invoices"
+              items={[
+                { to: "/documents?type=INVOICE&status=SENT&title=Invoices", label: "Invoices", icon: ClipboardList },
+                { to: "/documents?type=INVOICE&status=DRAFT&title=Future%20Invoices", label: "Future Invoices", icon: Bookmark },
+                { to: "/documents/new/INVOICE", label: "Create Invoice", icon: CirclePlus }
+              ]}
+              activePath={location.pathname}
+              activeSearch={location.search}
+            />
+            <InvoiceNavGroup
+              title="Mailbox"
+              items={[
+                { to: "/mailbox", label: "Mailbox", icon: Mail, badge: mailboxSummary?.unreadCount },
+                { to: "/mailbox", label: "Templates", icon: FileText },
+                { to: "/mailbox", label: "Snippets", icon: ClipboardList }
+              ]}
+              activePath={location.pathname}
+              activeSearch={location.search}
+            />
+            <InvoiceNavGroup
+              title="Settings"
+              items={[
+                { to: "/", label: "Settings", icon: Settings },
+                { to: "/clients", label: "Users", icon: UserCog },
+                { to: "/", label: "Company Profile", icon: Home }
+              ]}
+              activePath={location.pathname}
+              activeSearch={location.search}
+            />
+          </nav>
+          <div className="border-t border-white/10 p-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-full border border-white/30 text-lg font-semibold">A</div>
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold">{user?.name ?? "Admin User"}</div>
+                <div className="truncate text-xs text-white/60">{user?.email ?? "admin@eelectrics.co.uk"}</div>
+              </div>
+              <Button variant="ghost" size="icon" onClick={logout} className="text-white hover:bg-white/10">
+                <LogOut className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </aside>
+        <main className="md:pl-[260px]">
+          <div className="page-enter p-5">
+            <Outlet />
+          </div>
+        </main>
+      </div>
+    );
   }
 
   return (
@@ -199,6 +280,54 @@ export function AppShell() {
           <Outlet />
         </div>
       </main>
+    </div>
+  );
+}
+
+function InvoiceNavGroup({
+  title,
+  items,
+  activePath,
+  activeSearch,
+  forceActiveLabel
+}: {
+  title: string;
+  items: { to: string; label: string; icon: ComponentType<{ className?: string }>; badge?: number }[];
+  activePath: string;
+  activeSearch: string;
+  forceActiveLabel?: string;
+}) {
+  return (
+    <div>
+      {title ? <div className="px-3 pb-3 text-[12px] font-semibold uppercase tracking-wider text-white/55">{title}</div> : null}
+      <div className="space-y-1">
+        {items.map((item) => {
+          const target = new URL(item.to, window.location.origin);
+          const active =
+            forceActiveLabel === item.label ||
+            (item.label !== "Dashboard" && item.to === "/"
+              ? false
+              : item.label !== "Mailbox" && item.to === "/mailbox"
+                ? false
+                : target.pathname === "/documents"
+                  ? activePath === "/documents" && new URLSearchParams(activeSearch).get("type") === target.searchParams.get("type")
+                  : activePath === target.pathname);
+          return (
+            <Link
+              key={`${title}-${item.label}`}
+              to={item.to}
+              className={cn(
+                "flex h-11 items-center gap-3 rounded-md px-3 text-sm font-medium transition",
+                active ? "bg-[#ef1228] text-white shadow-lg shadow-red-950/20" : "text-white/85 hover:bg-white/10 hover:text-white"
+              )}
+            >
+              <item.icon className="h-5 w-5" />
+              <span className="flex-1 truncate">{item.label}</span>
+              {item.badge ? <span className="rounded-full bg-[#ef1228] px-2 py-0.5 text-xs text-white">{item.badge}</span> : null}
+            </Link>
+          );
+        })}
+      </div>
     </div>
   );
 }
