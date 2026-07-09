@@ -29,7 +29,6 @@ export const router = createBrowserRouter([
       { path: "custom-mails", element: <CustomMailPage /> },
       { path: "mailbox", element: <MailboxPage /> },
       { path: "settings", element: <SettingsPage /> },
-      { path: "settings/:section", element: <SettingsPage /> },
       { path: "*", element: <Navigate to="/" replace /> }
     ]
   }

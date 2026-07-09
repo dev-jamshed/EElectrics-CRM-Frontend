@@ -1,6 +1,6 @@
 import { Link, Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, Bookmark, CirclePlus, ClipboardList, FileText, Home, LayoutDashboard, LogOut, Mail, Moon, Settings, Sun, UserCog, Users } from "lucide-react";
+import { Bell, Bookmark, CirclePlus, ClipboardList, FileText, Home, LayoutDashboard, LogOut, Mail, Moon, Settings, Sun, Users } from "lucide-react";
 import type { ComponentType } from "react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -198,9 +198,7 @@ export function AppShell() {
             <InvoiceNavGroup
               title="Settings"
               items={[
-                { to: "/settings", label: "Settings", icon: Settings },
-                { to: "/settings/users", label: "Users", icon: UserCog },
-                { to: "/settings/company", label: "Company Profile", icon: Home }
+                { to: "/settings", label: "Settings", icon: Settings }
               ]}
               activePath={location.pathname}
               activeSearch={location.search}

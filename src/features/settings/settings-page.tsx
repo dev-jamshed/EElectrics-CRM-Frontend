@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { ComponentType, ReactNode } from "react";
-import { Building2, CalendarDays, Check, CreditCard, Eye, Lock, Mail, Pencil, Plus, UserCog } from "lucide-react";
+import { Building2, CalendarDays, Check, CreditCard, Eye, Lock, Mail, Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,8 +20,19 @@ type SettingsState = {
   companyEmail: string;
 };
 
+type ManagedUser = {
+  id: string;
+  name: string;
+  email: string;
+  role: "Administrator" | "Manager";
+  status: "Active";
+  lastLogin: string;
+  tone: "red" | "blue";
+};
+
 const settingsKey = "modern-crm-settings-profile-company";
 const passwordKey = "modern-crm-local-password";
+const managedUsersKey = "modern-crm-settings-users";
 const settingsInputClass = "border-[#d5dce7] bg-white text-[#101828] placeholder:text-[#98a2b3] [color-scheme:light]";
 
 const defaultSettings: SettingsState = {
@@ -55,19 +66,50 @@ function readSettings(user: { name: string; email: string } | null): SettingsSta
   }
 }
 
+function readManagedUsers(): ManagedUser[] {
+  const defaultUsers: ManagedUser[] = [
+    {
+      id: "john-manager",
+      name: "John Manager",
+      email: "john.manager@eelectrics.co.uk",
+      role: "Manager",
+      status: "Active",
+      lastLogin: "07 Jul 2026, 04:15 PM",
+      tone: "blue"
+    }
+  ];
+
+  try {
+    const stored = localStorage.getItem(managedUsersKey);
+    const parsed = stored ? JSON.parse(stored) : null;
+    return Array.isArray(parsed) ? parsed : defaultUsers;
+  } catch {
+    return defaultUsers;
+  }
+}
+
+function userInitials(name: string) {
+  return (
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "AD"
+  );
+}
+
 export function SettingsPage() {
   const { user, login } = useAuth();
   const [settings, setSettings] = useState<SettingsState>(() => readSettings(user));
   const [notifications, setNotifications] = useState<NotificationSettings>(() => readNotificationSettings());
   const [passwords, setPasswords] = useState({ current: "", next: "", confirm: "" });
+  const [managedUsers, setManagedUsers] = useState<ManagedUser[]>(() => readManagedUsers());
+  const [addUserOpen, setAddUserOpen] = useState(false);
+  const [newUser, setNewUser] = useState<{ name: string; email: string; role: ManagedUser["role"] }>({ name: "", email: "", role: "Manager" });
 
   const initials = useMemo(() => {
-    return settings.profileName
-      .split(/\s+/)
-      .filter(Boolean)
-      .slice(0, 2)
-      .map((part) => part[0]?.toUpperCase())
-      .join("") || "AD";
+    return userInitials(settings.profileName);
   }, [settings.profileName]);
 
   const update = <Key extends keyof SettingsState>(key: Key, value: SettingsState[Key]) => {
@@ -118,6 +160,48 @@ export function SettingsPage() {
     setNotifications(next);
     saveNotificationSettings(next);
     toast.success("Notification settings updated");
+  };
+
+  const addManagedUser = () => {
+    if (!newUser.name.trim()) {
+      toast.error("User name is required");
+      return;
+    }
+    if (!newUser.email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newUser.email.trim())) {
+      toast.error("Valid email is required");
+      return;
+    }
+    const email = newUser.email.trim().toLowerCase();
+    const existingEmails = [settings.profileEmail, ...managedUsers.map((managedUser) => managedUser.email)].map((value) => value.trim().toLowerCase());
+    if (existingEmails.includes(email)) {
+      toast.error("This user already exists");
+      return;
+    }
+
+    const nextUsers: ManagedUser[] = [
+      ...managedUsers,
+      {
+        id: `user-${Date.now()}`,
+        name: newUser.name.trim(),
+        email,
+        role: newUser.role,
+        status: "Active",
+        lastLogin: "-",
+        tone: newUser.role === "Administrator" ? "red" : "blue"
+      }
+    ];
+    setManagedUsers(nextUsers);
+    localStorage.setItem(managedUsersKey, JSON.stringify(nextUsers));
+    setNewUser({ name: "", email: "", role: "Manager" });
+    setAddUserOpen(false);
+    toast.success("User added");
+  };
+
+  const deleteManagedUser = (id: string) => {
+    const nextUsers = managedUsers.filter((managedUser) => managedUser.id !== id);
+    setManagedUsers(nextUsers);
+    localStorage.setItem(managedUsersKey, JSON.stringify(nextUsers));
+    toast.success("User deleted");
   };
 
   return (
@@ -211,23 +295,59 @@ export function SettingsPage() {
       <Panel
         title="Users & Admins"
         action={
-          <Button variant="outline" className="h-10 border-[#ef1228] bg-white text-[#ef1228] hover:bg-[#fff1f3]">
-            <Plus className="h-4 w-4" />
-            Add User
+          <Button className="h-10 bg-[#ef1228] text-white hover:bg-[#d90f22]" onClick={() => setAddUserOpen((open) => !open)}>
+            {addUserOpen ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+            {addUserOpen ? "Close" : "Add User"}
           </Button>
         }
       >
-        <div className="overflow-hidden rounded-md border border-[#dfe5ee]">
-          <div className="grid grid-cols-[1.25fr_1.45fr_150px_130px_180px_80px] bg-[#f8fafc] px-4 py-3 text-xs font-bold text-[#344054]">
-            <span>Name</span>
-            <span>Email</span>
-            <span>Role</span>
-            <span>Status</span>
-            <span>Last Login</span>
-            <span className="text-right">Action</span>
+        {addUserOpen && (
+          <div className="mb-4 rounded-md border border-[#dfe5ee] bg-[#f8fafc] p-4">
+            <div className="grid gap-3 md:grid-cols-[1fr_1fr_180px_auto] md:items-end">
+              <Field label="Name">
+                <Input className={settingsInputClass} value={newUser.name} onChange={(event) => setNewUser((current) => ({ ...current, name: event.target.value }))} placeholder="e.g. Jane Admin" />
+              </Field>
+              <Field label="Email">
+                <Input className={settingsInputClass} type="email" value={newUser.email} onChange={(event) => setNewUser((current) => ({ ...current, email: event.target.value }))} placeholder="name@example.com" />
+              </Field>
+              <Field label="Role">
+                <select className={`${settingsInputClass} h-10 w-full rounded-md border px-3 text-sm`} value={newUser.role} onChange={(event) => setNewUser((current) => ({ ...current, role: event.target.value as ManagedUser["role"] }))}>
+                  <option value="Manager">Manager</option>
+                  <option value="Administrator">Administrator</option>
+                </select>
+              </Field>
+              <Button className="h-10 bg-[#ef1228] text-white hover:bg-[#d90f22]" onClick={addManagedUser}>
+                <Plus className="h-4 w-4" />
+                Add
+              </Button>
+            </div>
           </div>
-          <UserRow initials={initials} name={settings.profileName || "Admin User"} email={settings.profileEmail || "admin@eelectrics.co.uk"} role="Administrator" status="Active" lastLogin="08 Jul 2026, 10:30 AM" tone="red" />
-          <UserRow initials="JM" name="John Manager" email="john.manager@eelectrics.co.uk" role="Manager" status="Active" lastLogin="07 Jul 2026, 04:15 PM" tone="blue" />
+        )}
+        <div className="overflow-x-auto rounded-md border border-[#dfe5ee]">
+          <div className="min-w-[930px]">
+            <div className="grid grid-cols-[1.25fr_1.45fr_150px_130px_180px_90px] bg-[#f8fafc] px-4 py-3 text-xs font-bold text-[#344054]">
+              <span>Name</span>
+              <span>Email</span>
+              <span>Role</span>
+              <span>Status</span>
+              <span>Last Login</span>
+              <span>Action</span>
+            </div>
+            <UserRow initials={initials} name={settings.profileName || "Admin User"} email={settings.profileEmail || "admin@eelectrics.co.uk"} role="Administrator" status="Active" lastLogin="08 Jul 2026, 10:30 AM" tone="red" />
+            {managedUsers.map((managedUser) => (
+              <UserRow
+                key={managedUser.id}
+                initials={userInitials(managedUser.name)}
+                name={managedUser.name}
+                email={managedUser.email}
+                role={managedUser.role}
+                status={managedUser.status}
+                lastLogin={managedUser.lastLogin}
+                tone={managedUser.tone}
+                onDelete={() => deleteManagedUser(managedUser.id)}
+              />
+            ))}
+          </div>
         </div>
       </Panel>
     </div>
@@ -295,9 +415,27 @@ function NotificationRow({
   );
 }
 
-function UserRow({ initials, name, email, role, status, lastLogin, tone }: { initials: string; name: string; email: string; role: string; status: string; lastLogin: string; tone: "red" | "blue" }) {
+function UserRow({
+  initials,
+  name,
+  email,
+  role,
+  status,
+  lastLogin,
+  tone,
+  onDelete
+}: {
+  initials: string;
+  name: string;
+  email: string;
+  role: string;
+  status: string;
+  lastLogin: string;
+  tone: "red" | "blue";
+  onDelete?: () => void;
+}) {
   return (
-    <div className="grid grid-cols-[1.25fr_1.45fr_150px_130px_180px_80px] items-center border-t border-[#e7ecf3] px-4 py-3 text-sm">
+    <div className="grid grid-cols-[1.25fr_1.45fr_150px_130px_180px_90px] items-center border-t border-[#e7ecf3] px-4 py-3 text-sm">
       <div className="flex items-center gap-3">
         <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#071527] text-xs font-bold text-white">{initials}</span>
         <span className="font-semibold">{name}</span>
@@ -309,9 +447,13 @@ function UserRow({ initials, name, email, role, status, lastLogin, tone }: { ini
         {status}
       </span>
       <span className="text-[#344054]">{lastLogin}</span>
-      <button type="button" className="justify-self-end rounded-md p-2 text-[#101828] hover:bg-[#f8fafc]">
-        <UserCog className="h-4 w-4" />
-      </button>
+      {onDelete ? (
+        <button type="button" className="flex h-9 w-9 items-center justify-center rounded-md border border-[#ffd0d6] bg-white text-[#ef1228] transition hover:bg-[#fff1f3]" onClick={onDelete} title="Delete user">
+          <Trash2 className="h-4 w-4" />
+        </button>
+      ) : (
+        <span className="text-[#98a2b3]">-</span>
+      )}
     </div>
   );
 }
