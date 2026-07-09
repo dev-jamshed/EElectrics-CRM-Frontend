@@ -189,8 +189,7 @@ export function AppShell() {
               title="Mailbox"
               items={[
                 { to: "/mailbox", label: "Mailbox", icon: Mail },
-                { to: "/mailbox", label: "Templates", icon: FileText },
-                { to: "/mailbox", label: "Snippets", icon: ClipboardList }
+                { to: "/snippets", label: "Snippets", icon: ClipboardList }
               ]}
               activePath={location.pathname}
               activeSearch={location.search}

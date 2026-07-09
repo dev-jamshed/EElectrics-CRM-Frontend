@@ -31,9 +31,31 @@ type MailboxModal =
 
 type ComposeState = { to: string; subject: string; body: string; files: File[] };
 type MailboxDraft = { id: string; to: string; subject: string; body: string; updatedAt: string };
+type MailSnippet = { id: string; title: string; text: string };
 
 const emptyCompose: ComposeState = { to: "", subject: "", body: "", files: [] };
 const mailboxDraftKey = "modern-crm-mailbox-draft";
+const snippetsKey = "modern-crm-mail-snippets";
+
+const fallbackSnippets: MailSnippet[] = [
+  { id: "thanks", title: "Thanks for your reply", text: "Thanks for your reply. We will check and get back to you shortly." },
+  { id: "attached", title: "Please find attached", text: "Please find attached the requested document." },
+  { id: "payment-link", title: "Payment link line", text: "Alternative payment option: please use the secure payment link included in this email." },
+  { id: "invoice-attached", title: "Invoice attached", text: "Please find attached your invoice. If you have any questions, please reply to this email." },
+  { id: "quotation-attached", title: "Quotation attached", text: "Please find attached your quotation. Please let us know if you would like to proceed or need any changes." },
+  { id: "booking-confirm", title: "Confirm booking", text: "Please click the confirmation link in this email to confirm your booking." },
+  { id: "booking-schedule", title: "Schedule confirmation", text: "Your booking has been scheduled. Our engineer will attend at the agreed date and time." },
+  { id: "payment-received", title: "Payment received", text: "Thank you, your payment has been received and updated on our system." },
+  { id: "payment-reminder", title: "Payment reminder", text: "This is a friendly reminder that payment is still outstanding." },
+  { id: "online-card", title: "Online card option", text: "You can also pay online using the secure card payment link included in this email." },
+  { id: "address-check", title: "Address check", text: "Please confirm the job address is correct before we proceed." },
+  { id: "site-access", title: "Site access", text: "Please make sure clear access is available for the engineer on arrival." },
+  { id: "certificate-follow", title: "Certificate follow up", text: "The certificate/report will be sent once the work has been completed and checked." },
+  { id: "revision-note", title: "Revision note", text: "Please find the revised document attached. The previous version should be ignored." },
+  { id: "bank-details", title: "Bank details", text: "Bank Transfer: E Electrics Ltd, Sort Code: 60-83-71, Account No: 12345678." },
+  { id: "warranty", title: "Warranty note", text: "A 12-month warranty is provided on all workmanship." },
+  { id: "closing", title: "Professional closing", text: "Regards,\nE Electrics Ltd\n0800 999 1452" }
+];
 
 const navItems = [
   { key: "inbox", label: "Inbox", icon: Inbox },
@@ -87,6 +109,28 @@ function draftToThread(draft: MailboxDraft): MailboxThread {
   };
 }
 
+function readStoredList<T>(key: string, fallback: T[]): T[] {
+  try {
+    const stored = localStorage.getItem(key);
+    const parsed = stored ? JSON.parse(stored) : null;
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function readStoredSnippets(): MailSnippet[] {
+  const stored = readStoredList<MailSnippet>(snippetsKey, []);
+  const defaultsById = new Map(fallbackSnippets.map((snippet) => [snippet.id, snippet]));
+  const mergedStored = stored.map((snippet) => defaultsById.get(snippet.id) ?? snippet);
+  const storedIds = new Set(mergedStored.map((snippet) => snippet.id));
+  return [...mergedStored, ...fallbackSnippets.filter((snippet) => !storedIds.has(snippet.id))];
+}
+
+function appendContent(current: string, next: string) {
+  if (!next.trim()) return current;
+  return current.trim() ? `${current.trimEnd()}\n\n${next}` : next;
+}
 
 export function MailboxPage() {
   const queryClient = useQueryClient();
@@ -102,6 +146,7 @@ export function MailboxPage() {
   const [query, setQuery] = useState("");
   const [folder, setFolder] = useState<(typeof navItems)[number]["key"]>("inbox");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
+  const snippets = useMemo(() => readStoredSnippets(), []);
   const selectedId = searchParams.get("thread") ?? "";
   const shouldScrollLatest = searchParams.get("scroll") === "latest";
 
@@ -674,6 +719,13 @@ export function MailboxPage() {
                           <div className="mt-1 truncate text-[#667085]">{replyToMessage.textBody || replyToMessage.subject}</div>
                         </div>
                       ) : null}
+                      <MailboxInsertControls
+                        snippets={snippets}
+                        onSnippet={(snippet) => {
+                          setReply((current) => appendContent(current, snippet.text));
+                          toast.success("Snippet inserted");
+                        }}
+                      />
                       <Textarea
                         className="min-h-24 resize-none border-[#d5dce7] bg-white text-sm text-[#101828] placeholder:text-[#98a2b3] focus:ring-[#ef1228]/20"
                         placeholder="Type your reply here..."
@@ -737,6 +789,7 @@ export function MailboxPage() {
         <ComposeEmailModal
           compose={compose}
           setCompose={setCompose}
+          snippets={snippets}
           sending={composeMutation.isPending}
           onClose={() => setComposeOpen(false)}
           onSend={() => composeMutation.mutate()}
@@ -763,15 +816,46 @@ function AttachmentList({ files, onRemove }: { files: File[]; onRemove: (index: 
   );
 }
 
+function MailboxInsertControls({
+  snippets,
+  onSnippet
+}: {
+  snippets: MailSnippet[];
+  onSnippet: (snippet: MailSnippet) => void;
+}) {
+  return (
+    <div className="mb-3 flex flex-wrap gap-2">
+      <select
+        className="h-9 rounded-md border border-[#d5dce7] bg-white px-3 text-xs font-semibold text-[#101828] focus:outline-none focus:ring-2 focus:ring-[#ef1228]/20"
+        defaultValue=""
+        onChange={(event) => {
+          const snippet = snippets.find((item) => item.id === event.target.value);
+          if (snippet) onSnippet(snippet);
+          event.target.value = "";
+        }}
+      >
+        <option value="">Insert snippet</option>
+        {snippets.map((snippet) => (
+          <option key={snippet.id} value={snippet.id}>
+            {snippet.title}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 function ComposeEmailModal({
   compose,
   setCompose,
+  snippets,
   sending,
   onClose,
   onSend
 }: {
   compose: ComposeState;
   setCompose: Dispatch<SetStateAction<ComposeState>>;
+  snippets: MailSnippet[];
   sending: boolean;
   onClose: () => void;
   onSend: () => void;
@@ -817,6 +901,13 @@ function ComposeEmailModal({
             value={compose.subject}
             onChange={(event) => setCompose((current) => ({ ...current, subject: event.target.value }))}
             onKeyDown={submitWithKeyboard}
+          />
+          <MailboxInsertControls
+            snippets={snippets}
+            onSnippet={(snippet) => {
+              setCompose((current) => ({ ...current, body: appendContent(current.body, snippet.text) }));
+              toast.success("Snippet inserted");
+            }}
           />
           <Textarea
             className="min-h-48 resize-none border-[#d5dce7] bg-[#f8fafc] text-[#101828]"
