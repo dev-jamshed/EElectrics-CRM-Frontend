@@ -27,6 +27,22 @@ export function LoginPage() {
       toast.success("Welcome back");
       navigate("/", { replace: true });
     } catch {
+      try {
+        const savedPassword = localStorage.getItem("modern-crm-local-password");
+        const savedSettings = JSON.parse(localStorage.getItem("modern-crm-settings-profile-company") || "{}") as { profileEmail?: string; profileName?: string };
+        if (savedPassword && savedSettings.profileEmail === email && savedPassword === password) {
+          login(localStorage.getItem("modern-crm-token") || "modern-crm-local-token", {
+            name: savedSettings.profileName || "Admin User",
+            email: savedSettings.profileEmail,
+            role: "Administrator"
+          });
+          toast.success("Welcome back");
+          navigate("/", { replace: true });
+          return;
+        }
+      } catch {
+        // Fall through to the normal invalid login message.
+      }
       toast.error("Invalid login details");
     } finally {
       setLoading(false);

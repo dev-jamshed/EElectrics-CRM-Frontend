@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/features/auth/auth-provider";
 import { crmApi } from "@/lib/api";
+import { readNotificationSettings } from "@/lib/notification-settings";
 
 type NavItem =
   | { to: string; label: string; icon: ComponentType<{ className?: string }>; section: string }
@@ -71,6 +72,7 @@ export function AppShell() {
         }));
       }
       if (payload.imported) {
+        if (!readNotificationSettings().emailReplies) return;
         const notificationKey = `${payload.latestThreadId ?? "mailbox"}:${payload.imported}:${payload.unreadCount ?? ""}`;
         const now = Date.now();
         if (lastNotificationRef.current?.key === notificationKey && now - lastNotificationRef.current.at < 10000) return;
@@ -196,9 +198,9 @@ export function AppShell() {
             <InvoiceNavGroup
               title="Settings"
               items={[
-                { to: "/", label: "Settings", icon: Settings },
-                { to: "/clients", label: "Users", icon: UserCog },
-                { to: "/", label: "Company Profile", icon: Home }
+                { to: "/settings", label: "Settings", icon: Settings },
+                { to: "/settings/users", label: "Users", icon: UserCog },
+                { to: "/settings/company", label: "Company Profile", icon: Home }
               ]}
               activePath={location.pathname}
               activeSearch={location.search}

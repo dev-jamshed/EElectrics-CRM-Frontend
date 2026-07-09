@@ -10,6 +10,7 @@ import { LoginPage } from "@/features/auth/login-page";
 import { CustomMailPage } from "@/features/custom-mails/custom-mail-page";
 import { BookingConfirmationPage } from "@/features/bookings/booking-confirmation-page";
 import { MailboxPage } from "@/features/mailbox/mailbox-page";
+import { SettingsPage } from "@/features/settings/settings-page";
 
 export const router = createBrowserRouter([
   { path: "/login", element: <LoginPage /> },
@@ -27,6 +28,8 @@ export const router = createBrowserRouter([
       { path: "documents/:id/edit", element: <DocumentFormPage /> },
       { path: "custom-mails", element: <CustomMailPage /> },
       { path: "mailbox", element: <MailboxPage /> },
+      { path: "settings", element: <SettingsPage /> },
+      { path: "settings/:section", element: <SettingsPage /> },
       { path: "*", element: <Navigate to="/" replace /> }
     ]
   }
