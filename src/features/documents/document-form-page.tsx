@@ -473,6 +473,7 @@ export function DocumentFormPage() {
   const queryClient = useQueryClient();
   const isEdit = Boolean(id);
   const documentType = (type as DocumentType | undefined) ?? "INVOICE";
+  const isBillingRoute = documentType === "INVOICE" || documentType === "QUOTATION";
 
   const { data: existing } = useQuery({
     queryKey: ["document", id],
@@ -487,7 +488,7 @@ export function DocumentFormPage() {
   const { data: clients = [] } = useQuery({
     queryKey: ["clients", "invoice-form"],
     queryFn: () => crmApi.clients(),
-    enabled: documentType === "INVOICE"
+    enabled: isBillingRoute
   });
 
   const seed = useMemo<DocumentRecord | undefined>(() => existing ?? source, [existing, source]);
@@ -513,7 +514,7 @@ export function DocumentFormPage() {
     jobTitle: "",
     description: "",
     greeting: "",
-    emailNote: documentType === "BOOKING" || documentType === "INVOICE" ? defaultInvoiceNote : "",
+    emailNote: documentType === "BOOKING" || isBillingRoute ? defaultInvoiceNote : "",
     issueDate: new Date().toISOString().slice(0, 10),
     dueDate: "",
     bookingDate: "",
@@ -530,10 +531,12 @@ export function DocumentFormPage() {
     emailBody: "",
     pdfNotes: "",
     attachments: [] as Attachment[],
-    lineItems: documentType === "INVOICE" ? defaultInvoiceRows : ([] as LineItem[])
+    lineItems: isBillingRoute ? defaultInvoiceRows : ([] as LineItem[])
   });
 
   const copy = labels(form.type as DocumentType);
+  const isBillingDocument = form.type === "INVOICE" || form.type === "QUOTATION";
+  const billingNoun = form.type === "QUOTATION" ? "Quotation" : "Invoice";
 
   useEffect(() => {
     if (!seed) return;
@@ -554,7 +557,7 @@ export function DocumentFormPage() {
       jobTitle: seed.jobTitle ?? "",
       description: copyDocumentText ? "" : seed.description ?? "",
       greeting: copyDocumentText ? "" : seed.greeting ?? "",
-      emailNote: copyDocumentText ? defaultInvoiceNote : seed.emailNote ?? (documentType === "INVOICE" ? defaultInvoiceNote : ""),
+      emailNote: copyDocumentText ? defaultInvoiceNote : seed.emailNote ?? (isBillingRoute ? defaultInvoiceNote : ""),
       issueDate: seed.issueDate?.slice(0, 10) ?? current.issueDate,
       dueDate: seed.dueDate?.slice(0, 10) ?? "",
       bookingDate: seed.bookingDate?.slice(0, 10) ?? "",
@@ -603,11 +606,11 @@ export function DocumentFormPage() {
     .map(normalizeLineItem);
   const invoiceAmount = invoiceLineItems.reduce((sum, item) => sum + lineItemTotal(item), 0);
   const legacyAmount = hasLabour || hasMaterial ? calculatedAmount : Number(form.price || 0);
-  const documentAmount = form.type === "INVOICE" ? invoiceAmount : legacyAmount;
-  const computedIncludeOptions = form.type === "INVOICE" ? includeOptionsFromLineItems(invoiceLineItems) : form.includeOptions;
+  const documentAmount = isBillingDocument ? invoiceAmount : legacyAmount;
+  const computedIncludeOptions = isBillingDocument ? includeOptionsFromLineItems(invoiceLineItems) : form.includeOptions;
 
   const selectedLineItems: LineItem[] =
-    form.type === "INVOICE"
+    isBillingDocument
       ? invoiceLineItems
       : [
           ...(hasLabour
@@ -638,21 +641,21 @@ export function DocumentFormPage() {
 
   const validateInclude = () => {
     if (form.type === "BOOKING") return true;
-    if (form.type === "INVOICE") {
+    if (isBillingDocument) {
       if (!invoiceLineItems.length) {
-        toast.error("Add at least one invoice item");
+        toast.error(`Add at least one ${billingNoun.toLowerCase()} item`);
         return false;
       }
       if (invoiceLineItems.some((item) => !item.title.trim())) {
-        toast.error("Every invoice item needs a description");
+        toast.error(`Every ${billingNoun.toLowerCase()} item needs a description`);
         return false;
       }
       if (invoiceLineItems.some((item) => Number(item.quantity || 0) <= 0)) {
-        toast.error("Every invoice item needs quantity");
+        toast.error(`Every ${billingNoun.toLowerCase()} item needs quantity`);
         return false;
       }
       if (!Number.isFinite(invoiceAmount) || invoiceAmount <= 0) {
-        toast.error("Invoice total must be greater than zero");
+        toast.error(`${billingNoun} total must be greater than zero`);
         return false;
       }
       return true;
@@ -701,7 +704,7 @@ export function DocumentFormPage() {
       extraAddress: form.extraAddress,
       jobTitle: form.jobTitle,
       greeting: form.greeting,
-      body: form.type === "INVOICE" ? invoiceBodyFromItems(form.description || form.emailBody, selectedLineItems) : form.description || form.emailBody,
+      body: isBillingDocument ? invoiceBodyFromItems(form.description || form.emailBody, selectedLineItems) : form.description || form.emailBody,
       emailNote: form.emailNote,
       includeOptions: computedIncludeOptions,
       total: documentAmount
@@ -733,7 +736,7 @@ export function DocumentFormPage() {
         caseFileId: isEdit ? existing?.caseFileId : source?.caseFileId,
         sourceDocumentId,
         jobTitle: form.jobTitle,
-        description: form.type === "INVOICE" ? invoiceBodyFromItems(form.description, selectedLineItems) : form.description,
+        description: isBillingDocument ? invoiceBodyFromItems(form.description, selectedLineItems) : form.description,
         greeting: form.greeting,
         emailNote: form.emailNote,
         cc: form.cc,
@@ -859,14 +862,14 @@ export function DocumentFormPage() {
     setForm((current) => ({ ...current, lineItems: templates[template].map(normalizeLineItem) }));
   };
 
-  if (form.type === "INVOICE") {
+  if (isBillingDocument) {
     const subtotal = form.lineItems.reduce((sum, item) => sum + lineItemTotal(item), 0);
     const normalizedRows = form.lineItems.map(normalizeLineItem);
 
     return (
       <div className="mx-auto max-w-[1540px] space-y-3 text-[#101828] [color-scheme:light]">
         <div className="flex items-center justify-between">
-          <h1 className="text-[28px] font-bold tracking-[-0.02em]">{isEdit ? "Edit Invoice" : "New Invoice"}</h1>
+          <h1 className="text-[28px] font-bold tracking-[-0.02em]">{isEdit ? `Edit ${billingNoun}` : `New ${billingNoun}`}</h1>
           <div className="flex flex-wrap items-center gap-2">
             <Button type="button" variant="outline" className="h-10 border-[#d9e0ea] bg-white px-5 text-[#101828] hover:bg-[#f8fafc]" onClick={() => submitDocument({ sendMail: false, status: "DRAFT" })} loading={mutation.isPending}>
               <Save className="h-4 w-4" /> Save Draft
@@ -904,7 +907,7 @@ export function DocumentFormPage() {
         <div className="grid gap-3 xl:grid-cols-[minmax(620px,1fr)_minmax(560px,.98fr)]">
           <div className="space-y-3">
             <div className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
-              <h2 className="mb-4 text-base font-bold">Client & Invoice Details</h2>
+              <h2 className="mb-4 text-base font-bold">Client & {billingNoun} Details</h2>
               <div className="grid gap-5 md:grid-cols-2">
                 <label className="space-y-1.5">
                   <span className="text-xs font-medium">Client</span>
@@ -936,7 +939,7 @@ export function DocumentFormPage() {
                   <IconField icon={Phone} label="Phone" value={form.phone} onChange={(phone) => setForm({ ...form, phone })} inputClassName={invoiceInputClass} iconClassName="border-[#cfd7e3] bg-white text-[#53627a]" />
                 </div>
                 <div className="grid gap-4">
-                  <IconField icon={Calendar} label="Invoice Date" type="date" value={form.issueDate} onChange={(issueDate) => setForm({ ...form, issueDate })} inputClassName={invoiceInputClass} iconClassName="border-[#cfd7e3] bg-white text-[#53627a]" />
+                  <IconField icon={Calendar} label={`${billingNoun} Date`} type="date" value={form.issueDate} onChange={(issueDate) => setForm({ ...form, issueDate })} inputClassName={invoiceInputClass} iconClassName="border-[#cfd7e3] bg-white text-[#53627a]" />
                   <IconField icon={Calendar} label="Due Date" type="date" value={form.dueDate} onChange={(dueDate) => setForm({ ...form, dueDate })} inputClassName={invoiceInputClass} iconClassName="border-[#cfd7e3] bg-white text-[#53627a]" />
                 </div>
                 <IconField icon={Hash} label="Reference / PO (optional)" value={form.cc} onChange={(cc) => setForm({ ...form, cc })} inputClassName={invoiceInputClass} iconClassName="border-[#cfd7e3] bg-white text-[#53627a]" />
@@ -1043,7 +1046,7 @@ export function DocumentFormPage() {
                   <ToggleSwitch label="Attach images in email" checked={form.sendImages} onChange={(sendImages) => setForm({ ...form, sendImages })} />
                 </div>
                 <label className="hidden space-y-2 md:col-span-2">
-                  <span className="text-xs font-medium">Invoice Notes</span>
+                    <span className="text-xs font-medium">{billingNoun} Notes</span>
                   <RichTextarea value={form.description} onChange={(description) => setForm({ ...form, description })} minHeight="min-h-28" />
                 </label>
                 <label className="hidden space-y-2 md:col-span-2">
@@ -1097,7 +1100,7 @@ export function DocumentFormPage() {
                     <RichTextarea value={form.greeting} onChange={(greeting) => setForm({ ...form, greeting })} minHeight="min-h-24" />
                   </label>
                   <label className="space-y-2">
-                    <span className="text-xs font-medium">Invoice Description</span>
+                    <span className="text-xs font-medium">{billingNoun} Description</span>
                     <RichTextarea value={form.description} onChange={(description) => setForm({ ...form, description })} minHeight="min-h-28" />
                   </label>
                   <label className="space-y-2">
@@ -1150,14 +1153,15 @@ export function DocumentFormPage() {
                   <FileText className="h-5 w-5" /> Preview PDF
                 </Button>
                 <Button className="h-12 bg-[#ef1228] text-white hover:bg-[#d90f22]" onClick={() => submitDocument()} disabled={!form.firstName || !form.jobTitle} loading={mutation.isPending}>
-                  <Send className="h-5 w-5" /> Send Invoice
+                  <Send className="h-5 w-5" /> Send {billingNoun}
                 </Button>
               </div>
             </div>
           </div>
 
           <div className="space-y-4 xl:sticky xl:top-4 xl:self-start">
-            <InvoicePreviewPanel
+              <InvoicePreviewPanel
+              documentType={form.type as DocumentType}
               documentNo={existing?.documentNo ?? "Draft"}
               issueDate={form.issueDate}
               dueDate={form.dueDate}
@@ -1190,7 +1194,7 @@ export function DocumentFormPage() {
                   <FileText className="h-4 w-4" /> Preview PDF
                 </Button>
                 <Button onClick={() => submitDocument()} disabled={!form.firstName || !form.jobTitle} loading={mutation.isPending}>
-                  <Send className="h-4 w-4" /> Send Invoice
+                  <Send className="h-4 w-4" /> Send {billingNoun}
                 </Button>
               </div>
             </div>
@@ -1431,6 +1435,7 @@ export function DocumentFormPage() {
 }
 
 function InvoicePreviewPanel({
+  documentType,
   documentNo,
   issueDate,
   dueDate,
@@ -1447,6 +1452,7 @@ function InvoicePreviewPanel({
   onPreviewModeChange,
   onDownloadPdf
 }: {
+  documentType: DocumentType;
   documentNo: string;
   issueDate: string;
   dueDate: string;
@@ -1463,6 +1469,7 @@ function InvoicePreviewPanel({
   onPreviewModeChange: (mode: "desktop" | "mobile") => void;
   onDownloadPdf: () => void;
 }) {
+  const documentLabel = documentType === "QUOTATION" ? "Quotation" : "Invoice";
   return (
     <div className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
       <div className="mb-4 flex items-center justify-between">
@@ -1496,7 +1503,7 @@ function InvoicePreviewPanel({
           <div className="mb-5 flex items-start justify-between gap-4">
             <img src={oldCrmLogoUrl} alt="E Electrics" className={`h-auto ${previewMode === "mobile" ? "w-40" : "w-56"}`} />
             <div className="text-right">
-              <div className={`${previewMode === "mobile" ? "text-xl" : "text-2xl"} font-bold uppercase text-[#ef1228]`}>Invoice</div>
+              <div className={`${previewMode === "mobile" ? "text-xl" : "text-2xl"} font-bold uppercase text-[#ef1228]`}>{documentLabel}</div>
               <div className="text-base font-bold">{documentNo}</div>
             </div>
           </div>
@@ -1512,7 +1519,7 @@ function InvoicePreviewPanel({
             </div>
             <div className="grid gap-5">
               <div className="grid grid-cols-[100px_1fr] gap-x-4">
-                <span className="font-bold">Invoice Date:</span><span>{formatOldDate(issueDate)}</span>
+                <span className="font-bold">{documentLabel} Date:</span><span>{formatOldDate(issueDate)}</span>
                 <span className="font-bold">Due Date:</span><span>{dueDate ? formatOldDate(dueDate) : "-"}</span>
               </div>
               <div className="rounded border border-[#d5dce7] bg-[#fbfcfe] p-3">
@@ -1555,7 +1562,7 @@ function InvoicePreviewPanel({
           </div>
           <div className="mt-4 border-b border-[#cfd7e3] pb-5 text-xs">
             <p className="font-bold text-[#ef1228]">Notes:</p>
-            <p className="mt-2 whitespace-pre-wrap leading-5">{notes || "Thank you for your business. Payment is due within 14 days from the invoice date."}</p>
+            <p className="mt-2 whitespace-pre-wrap leading-5">{notes || `Thank you for your business. ${documentLabel === "Invoice" ? "Payment is due within 14 days from the invoice date." : "Please review this quotation and contact us with any questions."}`}</p>
           </div>
           <div className={`grid gap-6 border-b border-[#ef1228] py-4 text-xs ${previewMode === "mobile" ? "" : "sm:grid-cols-2"}`}>
             <div>

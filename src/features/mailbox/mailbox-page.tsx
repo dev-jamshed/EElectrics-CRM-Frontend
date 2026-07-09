@@ -391,13 +391,7 @@ export function MailboxPage() {
 
             <section className="min-h-0 overflow-hidden rounded-md border border-[#dfe5ee] bg-white shadow-sm">
               <div className="flex h-[68px] items-center justify-between border-b border-[#e7ecf3] bg-white px-5">
-                <div className="flex items-center gap-6">
-                  <input type="checkbox" className="h-4 w-4 rounded border-[#98a2b3]" aria-label="Select all emails" />
-                  <button type="button" className="inline-flex items-center gap-1.5 text-sm font-medium text-[#101828]">
-                    All
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  </button>
-                </div>
+                <div className="text-sm font-semibold text-[#101828]">{navItems.find((item) => item.key === folder)?.label ?? "Mailbox"}</div>
                 <div>
                   <button
                     type="button"
@@ -499,8 +493,8 @@ export function MailboxPage() {
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-1 text-sm text-[#344054]">
                           <span>{thread.fromEmail || "customer@email.com"}</span>
-                          <span>â€¢</span>
-                          <span>{thread.client?.phone || thread.document?.phoneNo || ""}</span>
+                          {thread.client?.phone || thread.document?.phoneNo ? <span>|</span> : null}
+                          {thread.client?.phone || thread.document?.phoneNo ? <span>{thread.client?.phone || thread.document?.phoneNo}</span> : null}
                         </div>
                         <div className="mt-8 flex items-center justify-between gap-4">
                           <h3 className="line-clamp-1 text-base font-bold text-[#101828]">{thread.subject}</h3>

@@ -22,9 +22,11 @@ const nav: NavItem[] = [
   { to: "/documents?type=BOOKING&status=DRAFT&title=Future%20Bookings", label: "Future Bookings", icon: Bookmark, section: "Bookings" },
   { to: "/documents/new/BOOKING", label: "Create Booking", icon: CirclePlus, section: "Bookings" },
   { section: "Quotations" },
+  { to: "/documents/new/QUOTATION", label: "Create Quotation", icon: CirclePlus, section: "Quotations" },
   { to: "/documents?type=QUOTATION&status=SENT&title=Quotations", label: "Quotations", icon: Mail, section: "Quotations" },
   { to: "/documents?type=QUOTATION&status=DRAFT&title=Future%20Quotations", label: "Future Quotations", icon: Bookmark, section: "Quotations" },
   { section: "Invoices" },
+  { to: "/documents/new/INVOICE", label: "Create Invoice", icon: CirclePlus, section: "Invoices" },
   { to: "/documents?type=INVOICE&status=SENT&title=Invoices", label: "Invoices", icon: ClipboardList, section: "Invoices" },
   { to: "/documents?type=INVOICE&status=DRAFT&title=Future%20Invoices", label: "Future Invoices", icon: Bookmark, section: "Invoices" }
 ];
@@ -156,11 +158,27 @@ export function AppShell() {
               title="Work"
               items={[
                 { to: "/clients", label: "Clients", icon: Users },
-                { to: "/documents?type=BOOKING&status=SENT&title=Booked%20Bookings", label: "Bookings", icon: ClipboardList },
-                { to: "/documents?type=QUOTATION&status=SENT&title=Quotations", label: "Quotations", icon: FileText },
+                { to: "/documents?type=BOOKING&status=SENT&title=Booked%20Bookings", label: "Bookings", icon: ClipboardList }
+              ]}
+              activePath={location.pathname}
+              activeSearch={location.search}
+            />
+            <InvoiceNavGroup
+              title="Invoices"
+              items={[
+                { to: "/documents/new/INVOICE", label: "Create Invoice", icon: CirclePlus },
                 { to: "/documents?type=INVOICE&status=SENT&title=Invoices", label: "Invoices", icon: ClipboardList },
-                { to: "/documents?type=INVOICE&status=DRAFT&title=Future%20Invoices", label: "Future Invoices", icon: Bookmark },
-                { to: "/documents/new/INVOICE", label: "Create Document", icon: CirclePlus }
+                { to: "/documents?type=INVOICE&status=DRAFT&title=Future%20Invoices", label: "Future Invoices", icon: Bookmark }
+              ]}
+              activePath={location.pathname}
+              activeSearch={location.search}
+            />
+            <InvoiceNavGroup
+              title="Quotations"
+              items={[
+                { to: "/documents/new/QUOTATION", label: "Create Quotation", icon: CirclePlus },
+                { to: "/documents?type=QUOTATION&status=SENT&title=Quotations", label: "Quotations", icon: FileText },
+                { to: "/documents?type=QUOTATION&status=DRAFT&title=Future%20Quotations", label: "Future Quotations", icon: Bookmark }
               ]}
               activePath={location.pathname}
               activeSearch={location.search}
@@ -168,7 +186,7 @@ export function AppShell() {
             <InvoiceNavGroup
               title="Mailbox"
               items={[
-                { to: "/mailbox", label: "Mailbox", icon: Mail, badge: mailboxSummary?.unreadCount },
+                { to: "/mailbox", label: "Mailbox", icon: Mail },
                 { to: "/mailbox", label: "Templates", icon: FileText },
                 { to: "/mailbox", label: "Snippets", icon: ClipboardList }
               ]}
