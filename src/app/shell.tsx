@@ -139,11 +139,11 @@ export function AppShell() {
   if (useModernTemplate) {
     return (
       <div className="min-h-screen bg-[#f5f7fb] text-[#0f172a]">
-        <aside className="fixed inset-y-0 left-0 z-20 hidden w-[260px] bg-[#08182b] text-white shadow-2xl md:flex md:flex-col">
-          <div className="px-5 py-6">
+        <aside className="fixed inset-y-0 left-0 z-20 hidden w-[260px] bg-[#071527] text-white shadow-2xl md:flex md:flex-col">
+          <div className="px-5 pb-7 pt-5">
             <img src="https://res.cloudinary.com/djneoqoqk/image/upload/v1734727264/email_logo_aqoox6.png" alt="E Electrics" className="h-auto w-[220px]" />
           </div>
-          <nav className="flex-1 space-y-6 overflow-y-auto px-3 pb-4">
+          <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4">
             <InvoiceNavGroup
               title=""
               items={[
@@ -157,17 +157,10 @@ export function AppShell() {
               items={[
                 { to: "/clients", label: "Clients", icon: Users },
                 { to: "/documents?type=BOOKING&status=SENT&title=Booked%20Bookings", label: "Bookings", icon: ClipboardList },
-                { to: "/documents?type=QUOTATION&status=SENT&title=Quotations", label: "Quotations", icon: FileText }
-              ]}
-              activePath={location.pathname}
-              activeSearch={location.search}
-            />
-            <InvoiceNavGroup
-              title="Invoices"
-              items={[
+                { to: "/documents?type=QUOTATION&status=SENT&title=Quotations", label: "Quotations", icon: FileText },
                 { to: "/documents?type=INVOICE&status=SENT&title=Invoices", label: "Invoices", icon: ClipboardList },
                 { to: "/documents?type=INVOICE&status=DRAFT&title=Future%20Invoices", label: "Future Invoices", icon: Bookmark },
-                { to: "/documents/new/INVOICE", label: "Create Invoice", icon: CirclePlus }
+                { to: "/documents/new/INVOICE", label: "Create Document", icon: CirclePlus }
               ]}
               activePath={location.pathname}
               activeSearch={location.search}
@@ -195,7 +188,7 @@ export function AppShell() {
           </nav>
           <div className="border-t border-white/10 p-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full border border-white/30 text-lg font-semibold">A</div>
+              <div className="flex h-11 w-11 items-center justify-center rounded-full border border-white/35 text-sm font-semibold">AD</div>
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-semibold">{user?.name ?? "Admin User"}</div>
                 <div className="truncate text-xs text-white/60">{user?.email ?? "admin@eelectrics.co.uk"}</div>
@@ -298,8 +291,8 @@ function InvoiceNavGroup({
   forceActiveLabel?: string;
 }) {
   return (
-    <div>
-      {title ? <div className="px-3 pb-3 text-[12px] font-semibold uppercase tracking-wider text-white/55">{title}</div> : null}
+    <div className={title ? "border-t border-white/8 pt-4 first:border-t-0 first:pt-0" : ""}>
+      {title ? <div className="px-3 pb-3 text-[12px] font-semibold uppercase tracking-wider text-white/58">{title}</div> : null}
       <div className="space-y-1">
         {items.map((item) => {
           const target = new URL(item.to, window.location.origin);
@@ -317,8 +310,8 @@ function InvoiceNavGroup({
               key={`${title}-${item.label}`}
               to={item.to}
               className={cn(
-                "flex h-11 items-center gap-3 rounded-md px-3 text-sm font-medium transition",
-                active ? "bg-[#ef1228] text-white shadow-lg shadow-red-950/20" : "text-white/85 hover:bg-white/10 hover:text-white"
+                "flex h-11 items-center gap-3 rounded-md px-3 text-[15px] font-medium transition",
+                active ? "bg-[#ef1228] text-white shadow-lg shadow-red-950/20" : "text-white/88 hover:bg-white/10 hover:text-white"
               )}
             >
               <item.icon className="h-5 w-5" />

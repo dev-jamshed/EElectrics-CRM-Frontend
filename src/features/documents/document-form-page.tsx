@@ -1166,6 +1166,7 @@ export function DocumentFormPage() {
               extraAddress={form.extraAddress}
               jobTitle={form.jobTitle}
               greeting={form.greeting}
+              invoiceDescription={form.description}
               items={normalizedRows}
               subtotal={subtotal}
               notes={form.emailNote}
@@ -1438,6 +1439,7 @@ function InvoicePreviewPanel({
   extraAddress,
   jobTitle,
   greeting,
+  invoiceDescription,
   items,
   subtotal,
   notes,
@@ -1453,6 +1455,7 @@ function InvoicePreviewPanel({
   extraAddress: string;
   jobTitle: string;
   greeting: string;
+  invoiceDescription: string;
   items: LineItem[];
   subtotal: number;
   notes: string;
@@ -1523,6 +1526,7 @@ function InvoicePreviewPanel({
           <div className="mt-8 border-t-2 border-[#ef1228] pt-3">
             {jobTitle ? <div className="mb-2 text-sm font-semibold">{jobTitle}</div> : null}
             {greeting ? <div className="mb-3 whitespace-pre-wrap text-xs leading-5">{greeting}</div> : null}
+            {invoiceDescription ? <div className="mb-3 whitespace-pre-wrap text-xs leading-5">{invoiceDescription}</div> : null}
             <div className={`${previewMode === "mobile" ? "grid-cols-[1fr_72px_74px] px-2 text-[10px]" : "grid-cols-[1fr_120px_130px] px-3 text-xs"} grid bg-[#ef1228] py-2 font-bold text-white`}>
               <span>Description</span>
               <span className="text-right">Price (GBP)</span>

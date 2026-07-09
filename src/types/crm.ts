@@ -156,6 +156,9 @@ export type MailboxThread = {
   fromName?: string;
   toEmail?: string;
   unreadCount: number;
+  isStarred?: boolean;
+  archivedAt?: string | null;
+  trashedAt?: string | null;
   lastMessageAt?: string;
   document?: DocumentRecord | null;
   client?: Client | null;
@@ -165,4 +168,5 @@ export type MailboxThread = {
 export type MailboxSummary = {
   unreadCount: number;
   latest?: MailboxThread | null;
+  folderCounts?: Record<string, number>;
 };

@@ -34,7 +34,7 @@ export const crmApi = {
   mailboxStreamUrl: (token: string) =>
     `${String(api.defaults.baseURL ?? "").replace(/\/$/, "")}/mailbox/stream?token=${encodeURIComponent(token)}`,
   mailboxSummary: async () => (await api.get<MailboxSummary>("/mailbox/summary")).data,
-  mailboxThreads: async () => (await api.get<MailboxThread[]>("/mailbox/threads")).data,
+  mailboxThreads: async (folder?: string) => (await api.get<MailboxThread[]>("/mailbox/threads", { params: { folder } })).data,
   mailboxThread: async (id: string) => (await api.get<MailboxThread>(`/mailbox/threads/${id}`)).data,
   mailboxAttachmentUrl: (messageId: string, attachmentId: string) => {
     const token = localStorage.getItem("modern-crm-token") ?? "";
@@ -42,6 +42,12 @@ export const crmApi = {
   },
   mailboxReply: async (id: string, body: string, replyToMessageId?: string) =>
     (await api.post<MailboxThread>(`/mailbox/threads/${id}/reply`, { body, replyToMessageId })).data,
+  mailboxToggleStar: async (id: string) => (await api.post<MailboxThread>(`/mailbox/threads/${id}/star`, {})).data,
+  mailboxToggleArchive: async (id: string) => (await api.post<MailboxThread>(`/mailbox/threads/${id}/archive`, {})).data,
+  mailboxTrashThread: async (id: string) => (await api.post<MailboxThread>(`/mailbox/threads/${id}/trash`, {})).data,
+  mailboxRestoreThread: async (id: string) => (await api.post<MailboxThread>(`/mailbox/threads/${id}/restore`, {})).data,
+  mailboxDeleteThread: async (id: string) =>
+    (await api.delete<{ deleted: boolean; threadId: string }>(`/mailbox/threads/${id}`)).data,
   mailboxReplyWithAttachments: async (id: string, body: string, files: File[], replyToMessageId?: string) => {
     const formData = new FormData();
     formData.append("body", body);
