@@ -35,6 +35,8 @@ export const crmApi = {
     `${String(api.defaults.baseURL ?? "").replace(/\/$/, "")}/mailbox/stream?token=${encodeURIComponent(token)}`,
   mailboxSummary: async () => (await api.get<MailboxSummary>("/mailbox/summary")).data,
   mailboxThreads: async (folder?: string) => (await api.get<MailboxThread[]>("/mailbox/threads", { params: { folder } })).data,
+  mailboxThreadByDocument: async (documentId: string) =>
+    (await api.get<MailboxThread | null>(`/mailbox/documents/${documentId}/thread`)).data,
   mailboxThread: async (id: string) => (await api.get<MailboxThread>(`/mailbox/threads/${id}`)).data,
   mailboxAttachmentUrl: (messageId: string, attachmentId: string) => {
     const token = localStorage.getItem("modern-crm-token") ?? "";

@@ -2,6 +2,8 @@
 import {
   Archive,
   ChevronDown,
+  CheckCircle2,
+  Clock3,
   FileText,
   Inbox,
   MailOpen,
@@ -32,6 +34,7 @@ type MailboxModal =
 type ComposeState = { to: string; subject: string; body: string; files: File[] };
 type MailboxDraft = { id: string; to: string; subject: string; body: string; updatedAt: string };
 type MailSnippet = { id: string; title: string; text: string };
+type QueuedReply = { id: string; body: string; fileNames: string[]; createdAt: string; status: "sending" | "sent" | "failed" };
 
 const emptyCompose: ComposeState = { to: "", subject: "", body: "", files: [] };
 const mailboxDraftKey = "modern-crm-mailbox-draft";
@@ -138,6 +141,7 @@ export function MailboxPage() {
   const latestMessageRef = useRef<HTMLElement | null>(null);
   const [reply, setReply] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
+  const [queuedReplies, setQueuedReplies] = useState<QueuedReply[]>([]);
   const [replyToMessageId, setReplyToMessageId] = useState("");
   const [modal, setModal] = useState<MailboxModal>(null);
   const [composeOpen, setComposeOpen] = useState(false);
@@ -202,6 +206,7 @@ export function MailboxPage() {
     setReply("");
     setAttachments([]);
     setReplyToMessageId("");
+    setQueuedReplies([]);
   }, [activeId]);
 
   useEffect(() => {
@@ -298,18 +303,21 @@ export function MailboxPage() {
   });
 
   const replyMutation = useMutation({
-    mutationFn: () =>
-      attachments.length
-        ? crmApi.mailboxReplyWithAttachments(activeId, reply, attachments, replyToMessageId || undefined)
-        : crmApi.mailboxReply(activeId, reply, replyToMessageId || undefined),
-    onSuccess: () => {
-      setReply("");
-      setAttachments([]);
+    mutationFn: (payload: { queueId: string; body: string; files: File[]; replyToMessageId?: string }) =>
+      payload.files.length
+        ? crmApi.mailboxReplyWithAttachments(activeId, payload.body, payload.files, payload.replyToMessageId)
+        : crmApi.mailboxReply(activeId, payload.body, payload.replyToMessageId),
+    onSuccess: (result, payload) => {
+      queryClient.setQueryData(["mailbox", "thread", activeId], result);
+      setQueuedReplies((current) => current.filter((item) => item.id !== payload.queueId));
       setReplyToMessageId("");
       queryClient.invalidateQueries({ queryKey: ["mailbox"] });
       toast.success("Reply sent");
     },
-    onError: (error: any) => toast.error(error?.response?.data?.message || "Unable to send reply")
+    onError: (error: any, payload) => {
+      setQueuedReplies((current) => current.map((item) => (item.id === payload.queueId ? { ...item, status: "failed" } : item)));
+      toast.error(error?.response?.data?.message || "Unable to send reply");
+    }
   });
 
   const composeMutation = useMutation({
@@ -331,6 +339,25 @@ export function MailboxPage() {
   const canSendReply = Boolean(reply.trim() || attachments.length);
   const replyToMessage = messages.find((message) => message.id === replyToMessageId);
   const latestThreadMessage = messages[messages.length - 1];
+  const queueReply = () => {
+    if (!canSendReply || !activeId) return;
+    const queueId = `mailbox-reply-${Date.now()}`;
+    const body = reply;
+    const files = attachments;
+    setQueuedReplies((current) => [
+      ...current,
+      {
+        id: queueId,
+        body: body.trim() || `${files.length} attachment(s)`,
+        fileNames: files.map((file) => file.name),
+        createdAt: new Date().toISOString(),
+        status: "sending"
+      }
+    ]);
+    setReply("");
+    setAttachments([]);
+    replyMutation.mutate({ queueId, body, files, replyToMessageId: replyToMessageId || undefined });
+  };
   const threadBadge = thread?.trashedAt
     ? { label: "Trash", className: "bg-[#fff1f3] text-[#ef1228]" }
     : thread?.archivedAt
@@ -697,6 +724,34 @@ export function MailboxPage() {
                         </div>
                       </article>
                     ))}
+                    {queuedReplies.map((item) => (
+                      <article key={item.id} ref={item.id === queuedReplies[queuedReplies.length - 1]?.id ? latestMessageRef : undefined} className="rounded-md border border-[#d7e8fb] bg-[#eef7ff] p-5 shadow-sm">
+                        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-sm bg-white text-xs font-bold text-[#101828] ring-1 ring-[#dfe5ee]">E</div>
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-bold text-[#101828]">E Electrics Ltd</div>
+                              <div className="text-xs text-[#667085]">{formatFullDate(item.createdAt)}</div>
+                            </div>
+                          </div>
+                          <span className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold", item.status === "sent" ? "bg-emerald-50 text-emerald-700" : item.status === "failed" ? "bg-[#fff1f3] text-[#ef1228]" : "bg-[#f3f6fa] text-[#667085]")}>
+                            {item.status === "sent" ? <CheckCircle2 className="h-3.5 w-3.5" /> : item.status === "sending" ? <Clock3 className="h-3.5 w-3.5" /> : null}
+                            {item.status === "sent" ? "Sent" : item.status === "failed" ? "Failed" : "Queued"}
+                          </span>
+                        </div>
+                        <span className="whitespace-pre-wrap break-words text-sm leading-6 text-[#344054]">{item.body}</span>
+                        {item.fileNames.length ? (
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            {item.fileNames.map((name) => (
+                              <span key={name} className="inline-flex max-w-full items-center gap-2 rounded-md border border-[#dfe5ee] bg-[#f8fafc] px-2.5 py-1.5 text-xs font-semibold text-[#344054]">
+                                <Paperclip className="h-3.5 w-3.5 shrink-0 text-[#ef1228]" />
+                                <span className="max-w-56 truncate">{name}</span>
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                      </article>
+                    ))}
                   </div>
 
                   <div className="border-t border-[#e7ecf3] bg-white p-4">
@@ -732,9 +787,9 @@ export function MailboxPage() {
                         value={reply}
                         onChange={(event) => setReply(event.target.value)}
                         onKeyDown={(event) => {
-                          if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && canSendReply && !replyMutation.isPending) {
+                          if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && canSendReply) {
                             event.preventDefault();
-                            replyMutation.mutate();
+                            queueReply();
                           }
                         }}
                       />
@@ -762,11 +817,11 @@ export function MailboxPage() {
                         <button
                           type="button"
                           className="inline-flex h-10 items-center gap-2 rounded-md bg-[#ef1228] px-5 text-sm font-semibold text-white transition hover:bg-[#d90f22] disabled:cursor-not-allowed disabled:opacity-50"
-                          onClick={() => replyMutation.mutate()}
-                          disabled={!canSendReply || replyMutation.isPending}
+                          onClick={queueReply}
+                          disabled={!canSendReply}
                         >
                           <Send className="h-4 w-4" />
-                          Send
+                          {replyMutation.isPending ? "Queueing..." : "Send"}
                         </button>
                       </div>
                     </div>

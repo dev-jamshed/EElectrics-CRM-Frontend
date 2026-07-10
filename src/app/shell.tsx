@@ -65,6 +65,7 @@ export function AppShell() {
     source.onmessage = (event) => {
       const payload = JSON.parse(event.data || "{}") as { unreadCount?: number; imported?: number; latestThreadId?: string };
       queryClient.invalidateQueries({ queryKey: ["mailbox"] });
+      queryClient.invalidateQueries({ queryKey: ["mailbox", "document-thread"] });
       if (typeof payload.unreadCount === "number") {
         queryClient.setQueryData(["mailbox", "summary"], (current: any) => ({
           ...(current ?? {}),

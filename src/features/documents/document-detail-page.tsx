@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
@@ -8,14 +8,13 @@ import {
   CheckCircle2,
   Clock3,
   CopyPlus,
-  Download,
   Edit,
   ExternalLink,
   FileText,
   Image as ImageIcon,
   Link2,
   Mail,
-  MapPin,
+  Paperclip,
   Receipt,
   Send,
   Trash2,
@@ -26,28 +25,53 @@ import { currency, displayName, documentDisplayTitle, documentTypeLabel, hasDocu
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { DocumentRecord } from "@/types/crm";
+import { Textarea } from "@/components/ui/input";
+import type { DocumentRecord, MailboxThread } from "@/types/crm";
+
+type QueuedReply = {
+  id: string;
+  body: string;
+  fileNames: string[];
+  createdAt: string;
+  status: "sending" | "sent" | "failed";
+};
+
+type MailSnippet = { id: string; title: string; text: string };
+
+const bookingSnippets: MailSnippet[] = [
+  { id: "thanks", title: "Thanks for your reply", text: "Thanks for your reply." },
+  { id: "confirmed", title: "Booking confirmed", text: "Thanks, your booking is confirmed. Our engineer will contact you before arrival." },
+  { id: "arrival", title: "Arrival time", text: "Our engineer will contact you before arrival with an estimated time." },
+  { id: "access", title: "Site access", text: "Please make sure clear access is available for the engineer on arrival." },
+  { id: "closing", title: "Professional closing", text: "Regards,\nE Electrics Ltd\n0800 999 1452" }
+];
 
 export function DocumentDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
+  const [bookingReply, setBookingReply] = useState("");
+  const [bookingReplyFiles, setBookingReplyFiles] = useState<File[]>([]);
+  const [queuedBookingReplies, setQueuedBookingReplies] = useState<QueuedReply[]>([]);
   const { data: doc, isLoading } = useQuery({
     queryKey: ["document", id],
     queryFn: () => crmApi.document(id!),
     enabled: Boolean(id)
   });
-  const { data: pdfPreview } = useQuery({
-    queryKey: ["pdf-preview", id],
-    queryFn: () => crmApi.pdfPreview(id!),
-    enabled: Boolean(id && doc?.type === "BOOKING")
+  const { data: bookingThread } = useQuery({
+    queryKey: ["mailbox", "document-thread", id],
+    queryFn: () => crmApi.mailboxThreadByDocument(id!),
+    enabled: Boolean(id && doc?.type === "BOOKING"),
+    refetchInterval: 5000,
+    refetchIntervalInBackground: true
   });
 
   const sendMutation = useMutation({
     mutationFn: () => crmApi.sendDocument(id!),
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ["document", id] });
+      queryClient.invalidateQueries({ queryKey: ["mailbox", "document-thread", id] });
       if (updated.emailStatus === "FAILED") {
         toast.error(updated.emailError || "Email failed");
       } else {
@@ -84,6 +108,26 @@ export function DocumentDetailPage() {
     onError: () => toast.error("Unable to delete")
   });
 
+  const bookingReplyMutation = useMutation({
+    mutationFn: (payload: { queueId: string; body: string; files: File[] }) => {
+      if (!bookingThread?.id) throw new Error("No linked mailbox thread");
+      return payload.files.length
+        ? crmApi.mailboxReplyWithAttachments(bookingThread.id, payload.body, payload.files)
+        : crmApi.mailboxReply(bookingThread.id, payload.body);
+    },
+    onSuccess: (result, payload) => {
+      queryClient.setQueryData(["mailbox", "document-thread", id], result);
+      setQueuedBookingReplies((current) => current.filter((item) => item.id !== payload.queueId));
+      queryClient.invalidateQueries({ queryKey: ["mailbox"] });
+      queryClient.invalidateQueries({ queryKey: ["mailbox", "document-thread", id] });
+      toast.success("Reply sent");
+    },
+    onError: (error: any, payload) => {
+      setQueuedBookingReplies((current) => current.map((item) => (item.id === payload.queueId ? { ...item, status: "failed" } : item)));
+      toast.error(error?.response?.data?.message || error?.message || "Unable to send reply");
+    }
+  });
+
   useEffect(() => {
     if (!id || !searchParams.has("download")) return;
     window.location.href = crmApi.pdfDownloadUrl(id);
@@ -108,7 +152,6 @@ export function DocumentDetailPage() {
         doc={doc}
         connectedRecords={connectedRecords}
         hasRevisionDetails={hasRevisionDetails}
-        pdfHtml={pdfPreview?.html}
         onBack={() => navigate(-1)}
         onOpenPdf={openPdf}
         onSendEmail={() => sendMutation.mutate()}
@@ -119,6 +162,32 @@ export function DocumentDetailPage() {
           if (window.confirm("Delete this booking?")) deleteMutation.mutate();
         }}
         deleting={deleteMutation.isPending}
+        mailboxThread={bookingThread ?? null}
+        reply={bookingReply}
+        replyFiles={bookingReplyFiles}
+        queuedReplies={queuedBookingReplies}
+        setReply={setBookingReply}
+        setReplyFiles={setBookingReplyFiles}
+        onSendReply={() => {
+          if (!bookingThread?.id || (!bookingReply.trim() && !bookingReplyFiles.length)) return;
+          const queueId = `booking-reply-${Date.now()}`;
+          const body = bookingReply;
+          const files = bookingReplyFiles;
+          setQueuedBookingReplies((current) => [
+            ...current,
+            {
+              id: queueId,
+              body: body.trim() || `${files.length} attachment(s)`,
+              fileNames: files.map((file) => file.name),
+              createdAt: new Date().toISOString(),
+              status: "sending"
+            }
+          ]);
+          setBookingReply("");
+          setBookingReplyFiles([]);
+          bookingReplyMutation.mutate({ queueId, body, files });
+        }}
+        sendingReply={bookingReplyMutation.isPending}
       />
     );
   }
@@ -305,7 +374,6 @@ function ModernBookingDetail({
   doc,
   connectedRecords,
   hasRevisionDetails,
-  pdfHtml,
   onBack,
   onOpenPdf,
   onSendEmail,
@@ -313,12 +381,19 @@ function ModernBookingDetail({
   onClone,
   cloning,
   onDelete,
-  deleting
+  deleting,
+  mailboxThread,
+  reply,
+  replyFiles,
+  queuedReplies,
+  setReply,
+  setReplyFiles,
+  onSendReply,
+  sendingReply
 }: {
   doc: DocumentRecord;
   connectedRecords: DocumentRecord[];
   hasRevisionDetails: boolean;
-  pdfHtml?: string;
   onBack: () => void;
   onOpenPdf: () => void;
   onSendEmail: () => void;
@@ -327,6 +402,14 @@ function ModernBookingDetail({
   cloning: boolean;
   onDelete: () => void;
   deleting: boolean;
+  mailboxThread: MailboxThread | null;
+  reply: string;
+  replyFiles: File[];
+  queuedReplies: QueuedReply[];
+  setReply: (value: string) => void;
+  setReplyFiles: (updater: File[] | ((current: File[]) => File[])) => void;
+  onSendReply: () => void;
+  sendingReply: boolean;
 }) {
   const clientName = displayName(doc.client);
   const statusLabel = doc.status === "SENT" ? "Booked" : titleCase(doc.status);
@@ -390,8 +473,12 @@ function ModernBookingDetail({
               <CopyPlus className="h-4 w-4" />
               New Revision
             </Button>
-            <Button variant="outline" className="h-10 border-[#d5dce7] bg-white text-[#101828] hover:bg-[#f8fafc]" onClick={onOpenPdf}>
-              <Download className="h-4 w-4" />
+            <Button
+              variant="outline"
+              className="h-10 border-[#d5dce7] bg-white text-[#101828] hover:bg-[#f8fafc]"
+              onClick={onOpenPdf}
+            >
+              <FileText className="h-4 w-4" />
               View PDF
             </Button>
             <Button className="h-10 bg-[#ef1228] text-white hover:bg-[#d90f22]" onClick={onSendEmail} loading={sendingEmail}>
@@ -428,7 +515,6 @@ function ModernBookingDetail({
               <DetailTile label="Job Title" value={doc.jobTitle || "-"} wide />
               <DetailTile label="Include" value={parseInclude(doc.includeOptions).join(", ") || "-"} />
               <DetailTile label="Price" value={currency(doc.price ?? doc.total)} />
-              <DetailTile label="Email Status" value={doc.emailStatus ?? "-"} />
             </div>
           </section>
 
@@ -492,54 +578,20 @@ function ModernBookingDetail({
               {!connectedRecords.length ? <EmptyBookingState text="No invoices or quotations connected yet." compact /> : null}
             </div>
           </section>
-
-          <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
-            <h2 className="text-lg font-bold">Email Activity</h2>
-            <div className="mt-4 rounded-lg border border-[#e7ecf3] bg-[#fcfdff] p-4">
-              <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-md bg-[#fff1f3] text-[#ef1228]">
-                  <Mail className="h-5 w-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-bold">{doc.emailStatus === "SENT" ? "Booking email sent" : doc.emailStatus === "FAILED" ? "Email delivery failed" : "Email not sent yet"}</div>
-                  <p className="mt-1 text-xs leading-5 text-[#667085]">{doc.emailError || (doc.sentAt ? formatDateTime(doc.sentAt) : "Use Send Email to send the booking confirmation email.")}</p>
-                </div>
-              </div>
-            </div>
-            <div className="mt-3 rounded-lg border border-[#e7ecf3] bg-[#fcfdff] p-4">
-              <div className="flex items-start gap-3">
-                <div className={doc.bookingConfirmed ? "flex h-10 w-10 items-center justify-center rounded-md bg-emerald-50 text-emerald-700" : "flex h-10 w-10 items-center justify-center rounded-md bg-[#fff7e6] text-amber-700"}>
-                  <CheckCircle2 className="h-5 w-5" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-bold">{doc.bookingConfirmed ? "Customer confirmed" : "Waiting for confirmation"}</div>
-                  <p className="mt-1 text-xs leading-5 text-[#667085]">{doc.confirmedAt ? formatDateTime(doc.confirmedAt) : "Confirmation happens from the email button link."}</p>
-                </div>
-              </div>
-            </div>
-          </section>
         </aside>
       </div>
 
-      <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
-        <div className="mb-4 flex flex-col justify-between gap-3 md:flex-row md:items-center">
-          <div>
-            <h2 className="text-lg font-bold">PDF Preview</h2>
-            <p className="mt-1 text-xs text-[#667085]">Booking PDF output using the current CRM template.</p>
-          </div>
-          <Button variant="outline" className="h-10 border-[#d5dce7] bg-white text-[#101828] hover:bg-[#f8fafc]" onClick={onOpenPdf}>
-            <ExternalLink className="h-4 w-4" />
-            Open full PDF
-          </Button>
-        </div>
-        <div className="overflow-hidden rounded-lg border border-[#dfe5ee] bg-[#f8fafc] p-4">
-          {pdfHtml ? (
-            <iframe title="Booking PDF Preview" srcDoc={pdfHtml} className="h-[620px] w-full rounded-md border border-[#dfe5ee] bg-white" />
-          ) : (
-            <BookingPdfSkeleton doc={doc} />
-          )}
-        </div>
-      </section>
+      <BookingConversation
+        doc={doc}
+        thread={mailboxThread}
+        reply={reply}
+        replyFiles={replyFiles}
+        queuedReplies={queuedReplies}
+        setReply={setReply}
+        setReplyFiles={setReplyFiles}
+        onSendReply={onSendReply}
+        sendingReply={sendingReply}
+      />
     </div>
   );
 }
@@ -589,52 +641,252 @@ function EmptyBookingState({ text, compact }: { text: string; compact?: boolean 
   return <div className={compact ? "rounded-lg border border-dashed border-[#d5dce7] bg-[#fcfdff] p-4 text-center text-xs font-semibold text-[#667085]" : "rounded-lg border border-dashed border-[#d5dce7] bg-[#fcfdff] p-8 text-center text-sm font-semibold text-[#667085]"}>{text}</div>;
 }
 
-function BookingPdfSkeleton({ doc }: { doc: DocumentRecord }) {
+function titleCase(value: string) {
+  return value.toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function BookingConversation({
+  doc,
+  thread,
+  reply,
+  replyFiles,
+  queuedReplies,
+  setReply,
+  setReplyFiles,
+  onSendReply,
+  sendingReply
+}: {
+  doc: DocumentRecord;
+  thread: MailboxThread | null;
+  reply: string;
+  replyFiles: File[];
+  queuedReplies: QueuedReply[];
+  setReply: (value: string) => void;
+  setReplyFiles: (updater: File[] | ((current: File[]) => File[])) => void;
+  onSendReply: () => void;
+  sendingReply: boolean;
+}) {
+  const messages = thread?.messages ?? [];
+  const canReply = Boolean(thread?.id && (reply.trim() || replyFiles.length));
+
   return (
-    <div className="mx-auto max-w-4xl rounded-md bg-white p-8 shadow-sm">
-      <div className="flex items-start justify-between border-b-2 border-[#ef1228] pb-5">
+    <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+      <div className="mb-5 flex flex-col justify-between gap-3 xl:flex-row xl:items-start">
         <div>
-          <div className="text-3xl font-black tracking-tight text-[#071527]">
-            E <span className="text-[#ef1228]">ELECTRICS</span>
+          <h2 className="text-lg font-bold">Booking Conversation</h2>
+          <p className="mt-1 text-xs text-[#667085]">Replies linked to this booking email.</p>
+        </div>
+        {thread ? (
+          <Button asChild variant="outline" className="h-10 border-[#d5dce7] bg-white text-[#101828] hover:bg-[#f8fafc]">
+            <Link to={`/mailbox?thread=${thread.id}&scroll=latest`}>
+              <ExternalLink className="h-4 w-4" />
+              Open in Mailbox
+            </Link>
+          </Button>
+        ) : null}
+      </div>
+
+      <div>
+        <div className="rounded-lg border border-[#dfe5ee] bg-[#fcfdff]">
+          <div className="flex flex-wrap items-center gap-3 border-b border-[#e7ecf3] bg-white px-4 py-4">
+            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[#ffd6dc] text-sm font-bold text-[#c80d20]">{bookingInitials(displayName(doc.client) || doc.client?.email || "Client")}</span>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-bold">{displayName(doc.client) || thread?.fromName || "Customer"}</div>
+              <div className="truncate text-xs text-[#667085]">{doc.client?.email || thread?.fromEmail || "No email linked"}</div>
+            </div>
+            <span className="rounded-full bg-[#fff1f3] px-3 py-1 text-xs font-bold text-[#ef1228]">Linked to booking</span>
+            <span className="rounded-md bg-[#f3f6fa] px-2.5 py-1 text-xs font-bold text-[#344054]">{doc.documentNo}</span>
           </div>
-          <div className="mt-2 text-xs font-semibold uppercase tracking-[0.24em] text-[#667085]">Electrical Services</div>
-        </div>
-        <div className="text-right">
-          <div className="text-2xl font-black uppercase text-[#ef1228]">Booking</div>
-          <div className="mt-1 font-bold">{doc.documentNo}</div>
+
+          <div className="max-h-[560px] space-y-4 overflow-y-auto p-4">
+            {messages.length || queuedReplies.length ? (
+              <>
+              {messages.map((message) => {
+                const outbound = message.direction === "OUTBOUND";
+                const body = cleanEmailReply(message.textBody || stripHtml(message.htmlBody) || "-");
+                const replyTarget = message.replyToMessage?.textBody || message.replyToMessage?.subject || "Booking confirmation email";
+                return (
+                  <article key={message.id} className={outbound ? "ml-auto max-w-[82%] rounded-lg border border-[#d7e8fb] bg-[#eef7ff] p-4" : "mr-auto max-w-[82%] rounded-lg border border-[#f4d5dc] bg-white p-4"}>
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className={outbound ? "flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[#dfe5ee] bg-white text-xs font-black text-[#071527]" : "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#ffd6dc] text-xs font-bold text-[#c80d20]"}>
+                          {outbound ? "E" : bookingInitials(message.fromName || message.fromEmail || "Client")}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-bold">{outbound ? "E Electrics Ltd" : message.fromName || message.fromEmail || "Customer"}</div>
+                          <div className="text-xs text-[#667085]">{formatDateTime(message.sentAt || message.createdAt)}</div>
+                        </div>
+                      </div>
+                      {outbound ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" /> Sent</span> : <span className="rounded-full bg-[#eef0ff] px-2.5 py-1 text-xs font-bold text-[#4f46e5]">Customer reply</span>}
+                    </div>
+                    {!outbound ? (
+                      <div className="mb-3 rounded-md border-l-2 border-[#ef1228] bg-[#fff8f9] px-3 py-2 text-xs text-[#667085]">
+                        <span className="font-semibold text-[#101828]">Reply to: </span>
+                        <span className="line-clamp-1">{cleanEmailReply(replyTarget)}</span>
+                      </div>
+                    ) : null}
+                    <p className="whitespace-pre-wrap text-sm leading-6 text-[#344054]">{body}</p>
+                    {message.attachments?.length ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {message.attachments.map((attachment) => (
+                          <a key={attachment.id} href={crmApi.mailboxAttachmentUrl(message.id, attachment.id)} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-2 rounded-md border border-[#dfe5ee] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#344054] hover:border-[#ef1228]">
+                            <Paperclip className="h-3.5 w-3.5 text-[#ef1228]" />
+                            <span className="max-w-56 truncate">{attachment.name}</span>
+                          </a>
+                        ))}
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })}
+              {queuedReplies.map((item) => (
+                <article key={item.id} className="ml-auto max-w-[82%] rounded-lg border border-[#d7e8fb] bg-[#eef7ff] p-4">
+                  <div className="mb-3 flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[#dfe5ee] bg-white text-xs font-black text-[#071527]">E</span>
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-bold">E Electrics Ltd</div>
+                        <div className="text-xs text-[#667085]">{formatDateTime(item.createdAt)}</div>
+                      </div>
+                    </div>
+                    <span className={item.status === "sent" ? "inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700" : item.status === "failed" ? "rounded-full bg-[#fff1f3] px-2.5 py-1 text-xs font-bold text-[#ef1228]" : "inline-flex items-center gap-1 rounded-full bg-[#f3f6fa] px-2.5 py-1 text-xs font-bold text-[#667085]"}>
+                      {item.status === "sent" ? <CheckCircle2 className="h-3.5 w-3.5" /> : item.status === "sending" ? <Clock3 className="h-3.5 w-3.5" /> : null}
+                      {item.status === "sent" ? "Sent" : item.status === "failed" ? "Failed" : "Queued"}
+                    </span>
+                  </div>
+                  <p className="whitespace-pre-wrap text-sm leading-6 text-[#344054]">{item.body}</p>
+                  {item.fileNames.length ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {item.fileNames.map((name) => (
+                        <span key={name} className="inline-flex max-w-full items-center gap-2 rounded-md border border-[#dfe5ee] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#344054]">
+                          <Paperclip className="h-3.5 w-3.5 text-[#ef1228]" />
+                          <span className="max-w-56 truncate">{name}</span>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </article>
+              ))}
+              </>
+            ) : (
+              <div className="rounded-lg border border-dashed border-[#d5dce7] bg-white p-8 text-center">
+                <Mail className="mx-auto mb-3 h-10 w-10 text-[#98a2b3]" />
+                <div className="text-sm font-bold text-[#101828]">No booking replies yet</div>
+                <p className="mt-1 text-xs text-[#667085]">When a customer replies to this booking email, the conversation will appear here.</p>
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-[#e7ecf3] bg-white p-4">
+            <div className="mb-2 text-sm font-bold text-[#101828]">Reply</div>
+            <Textarea
+              className="min-h-24 resize-none border-[#d5dce7] bg-white text-sm text-[#101828] placeholder:text-[#98a2b3] focus:ring-[#ef1228]/20"
+              placeholder={thread ? `Reply to ${displayName(doc.client) || "customer"}...` : "No linked email thread yet"}
+              value={reply}
+              onChange={(event) => setReply(event.target.value)}
+              disabled={!thread}
+            />
+            {replyFiles.length ? (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {replyFiles.map((file, index) => (
+                  <span key={`${file.name}-${index}`} className="inline-flex max-w-full items-center gap-2 rounded-md border border-[#dfe5ee] bg-[#f8fafc] px-2.5 py-1 text-xs text-[#344054]">
+                    <Paperclip className="h-3.5 w-3.5 shrink-0 text-[#ef1228]" />
+                    <span className="max-w-48 truncate">{file.name}</span>
+                    <button type="button" className="rounded p-0.5 hover:bg-white" onClick={() => setReplyFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))}>
+                      x
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  className="h-10 rounded-md border border-[#d5dce7] bg-white px-3 text-sm font-semibold text-[#101828] focus:outline-none focus:ring-2 focus:ring-[#ef1228]/20 disabled:text-[#98a2b3]"
+                  defaultValue=""
+                  disabled={!thread}
+                  onChange={(event) => {
+                    const snippet = bookingSnippets.find((item) => item.id === event.target.value);
+                    if (snippet) setReply(reply.trim() ? `${reply.trimEnd()}\n\n${snippet.text}` : snippet.text);
+                    event.target.value = "";
+                  }}
+                >
+                  <option value="">Insert snippet</option>
+                  {bookingSnippets.map((snippet) => (
+                    <option key={snippet.id} value={snippet.id}>
+                      {snippet.title}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  id={`booking-chat-files-${doc.id}`}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  disabled={!thread}
+                  onChange={(event) => {
+                    const files = Array.from(event.target.files ?? []);
+                    setReplyFiles((current) => [...current, ...files].slice(0, 10));
+                    event.target.value = "";
+                  }}
+                />
+                <label htmlFor={`booking-chat-files-${doc.id}`} className={thread ? "inline-flex h-10 cursor-pointer items-center gap-2 rounded-md border border-[#d5dce7] bg-white px-4 text-sm font-semibold text-[#101828] transition hover:bg-[#f8fafc]" : "inline-flex h-10 cursor-not-allowed items-center gap-2 rounded-md border border-[#d5dce7] bg-white px-4 text-sm font-semibold text-[#98a2b3]"}>
+                  <Paperclip className="h-4 w-4" />
+                  Attach files
+                </label>
+              </div>
+              <Button className="h-10 bg-[#ef1228] text-white hover:bg-[#d90f22]" onClick={onSendReply} disabled={!canReply}>
+                <Send className="h-4 w-4" />
+                {sendingReply ? "Queueing..." : "Send Reply"}
+              </Button>
+            </div>
+            <p className="mt-2 text-xs text-[#667085]">This reply will stay linked to {doc.documentNo}.</p>
+          </div>
         </div>
       </div>
-      <div className="mt-6 grid gap-6 md:grid-cols-2">
-        <div className="space-y-1 text-sm">
-          <div className="font-bold">E Electrics Ltd</div>
-          <div>57 Beckhampton Road</div>
-          <div>Bath, BA2 1BL</div>
-          <div>info@eelectrics.co.uk | 0800 999 1452</div>
-        </div>
-        <div className="rounded-md border border-[#dfe5ee] p-4 text-sm">
-          <div className="font-bold">Booking For:</div>
-          <div className="mt-2">{displayName(doc.client)}</div>
-          <div>{doc.addressLine || "-"}</div>
-          <div>{doc.postalCode || ""}</div>
-        </div>
-      </div>
-      <div className="mt-8 overflow-hidden rounded-md border border-[#dfe5ee]">
-        <div className="grid grid-cols-[1fr_170px] bg-[#ef1228] px-4 py-3 text-sm font-bold text-white">
-          <span>Description</span>
-          <span>Date</span>
-        </div>
-        <div className="grid grid-cols-[1fr_170px] bg-[#fff4df] px-4 py-4 text-sm">
-          <span>{doc.emailNote || doc.description || doc.jobTitle || "Booking details"}</span>
-          <span>{doc.bookingDate ? recordDate(doc) : "-"}</span>
-        </div>
-      </div>
-      <div className="mt-8 border-t border-[#ef1228] pt-4 text-center text-sm font-semibold">Thank you for choosing E Electrics Ltd.</div>
-    </div>
+    </section>
   );
 }
 
-function titleCase(value: string) {
-  return value.toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase());
+function bookingInitials(value: string) {
+  return (
+    value
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "C"
+  );
+}
+
+function stripHtml(value?: string) {
+  if (!value) return "";
+  return value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function cleanEmailReply(value?: string) {
+  const text = String(value ?? "").replace(/\r\n/g, "\n").trim();
+  if (!text) return "-";
+  const markers = [
+    /\nOn .+ wrote:\s*/i,
+    /\nFrom:\s.+/i,
+    /\n-{2,}\s*Original Message\s*-{2,}/i,
+    /\n_{5,}/
+  ];
+  const markerIndex = markers
+    .map((pattern) => {
+      const match = text.match(pattern);
+      return match?.index ?? -1;
+    })
+    .filter((index) => index >= 0)
+    .sort((first, second) => first - second)[0];
+  const beforeQuote = markerIndex >= 0 ? text.slice(0, markerIndex) : text;
+  const cleaned = beforeQuote
+    .split("\n")
+    .filter((line) => !line.trim().startsWith(">"))
+    .join("\n")
+    .trim();
+  return cleaned || "-";
 }
 
 function bodyLabel(type: string) {
