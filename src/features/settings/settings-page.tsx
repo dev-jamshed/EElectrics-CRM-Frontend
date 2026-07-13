@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ComponentType, ReactNode } from "react";
-import { Building2, CalendarDays, Check, CreditCard, Eye, Lock, Mail, Pencil, Plus, Trash2, X } from "lucide-react";
+import { CalendarDays, Check, CreditCard, Eye, Lock, Mail, Pencil, Plus, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/features/auth/auth-provider";
+import { crmApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { readNotificationSettings, saveNotificationSettings, type NotificationSettings } from "@/lib/notification-settings";
 
@@ -24,10 +25,8 @@ type ManagedUser = {
   id: string;
   name: string;
   email: string;
-  role: "Administrator" | "Manager";
   status: "Active";
   lastLogin: string;
-  tone: "red" | "blue";
 };
 
 const settingsKey = "modern-crm-settings-profile-company";
@@ -67,24 +66,31 @@ function readSettings(user: { name: string; email: string } | null): SettingsSta
 }
 
 function readManagedUsers(): ManagedUser[] {
-  const defaultUsers: ManagedUser[] = [
-    {
-      id: "john-manager",
-      name: "John Manager",
-      email: "john.manager@eelectrics.co.uk",
-      role: "Manager",
-      status: "Active",
-      lastLogin: "07 Jul 2026, 04:15 PM",
-      tone: "blue"
-    }
-  ];
-
   try {
     const stored = localStorage.getItem(managedUsersKey);
     const parsed = stored ? JSON.parse(stored) : null;
-    return Array.isArray(parsed) ? parsed : defaultUsers;
+    return Array.isArray(parsed)
+      ? parsed
+          .filter((item) => item?.id && item?.name && item?.email)
+          .map((item) => ({
+            id: String(item.id),
+            name: String(item.name),
+            email: String(item.email),
+            status: "Active" as const,
+            lastLogin: item.lastLogin ? String(item.lastLogin) : "-"
+          }))
+      : [];
   } catch {
-    return defaultUsers;
+    return [];
+  }
+}
+
+function readStoredUsersWithPasswords() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(managedUsersKey) || "[]") as Array<{ name?: string; email?: string; password?: string }>;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
   }
 }
 
@@ -106,7 +112,37 @@ export function SettingsPage() {
   const [passwords, setPasswords] = useState({ current: "", next: "", confirm: "" });
   const [managedUsers, setManagedUsers] = useState<ManagedUser[]>(() => readManagedUsers());
   const [addUserOpen, setAddUserOpen] = useState(false);
-  const [newUser, setNewUser] = useState<{ name: string; email: string; role: ManagedUser["role"] }>({ name: "", email: "", role: "Manager" });
+  const [newUser, setNewUser] = useState({ name: "", email: "", password: "" });
+
+  useEffect(() => {
+    crmApi.adminUsers()
+      .then(async (users) => {
+        const localUsers = readStoredUsersWithPasswords();
+        const migratedUsers = [];
+        const existingEmails = new Set(users.map((item) => item.email.trim().toLowerCase()));
+        for (const localUser of localUsers) {
+          const email = localUser.email?.trim().toLowerCase();
+          if (!localUser.name?.trim() || !email || !localUser.password || existingEmails.has(email)) continue;
+          try {
+            const migratedUser = await crmApi.createAdminUser({
+              name: localUser.name.trim(),
+              email,
+              password: localUser.password
+            });
+            migratedUsers.push(migratedUser);
+            existingEmails.add(email);
+          } catch {
+            // Skip users that already exist or cannot be migrated.
+          }
+        }
+        const nextUsers = [...users, ...migratedUsers];
+        setManagedUsers(nextUsers);
+        localStorage.setItem(managedUsersKey, JSON.stringify(nextUsers));
+      })
+      .catch(() => {
+        // Keep the local fallback visible if the API is not available.
+      });
+  }, []);
 
   const initials = useMemo(() => {
     return userInitials(settings.profileName);
@@ -171,6 +207,10 @@ export function SettingsPage() {
       toast.error("Valid email is required");
       return;
     }
+    if (newUser.password.length < 6) {
+      toast.error("Password must be at least 6 characters");
+      return;
+    }
     const email = newUser.email.trim().toLowerCase();
     const existingEmails = [settings.profileEmail, ...managedUsers.map((managedUser) => managedUser.email)].map((value) => value.trim().toLowerCase());
     if (existingEmails.includes(email)) {
@@ -178,30 +218,33 @@ export function SettingsPage() {
       return;
     }
 
-    const nextUsers: ManagedUser[] = [
-      ...managedUsers,
-      {
-        id: `user-${Date.now()}`,
-        name: newUser.name.trim(),
-        email,
-        role: newUser.role,
-        status: "Active",
-        lastLogin: "-",
-        tone: newUser.role === "Administrator" ? "red" : "blue"
-      }
-    ];
-    setManagedUsers(nextUsers);
-    localStorage.setItem(managedUsersKey, JSON.stringify(nextUsers));
-    setNewUser({ name: "", email: "", role: "Manager" });
-    setAddUserOpen(false);
-    toast.success("User added");
+    crmApi
+      .createAdminUser({ name: newUser.name.trim(), email, password: newUser.password })
+      .then((createdUser) => {
+        const nextUsers = [...managedUsers, createdUser];
+        setManagedUsers(nextUsers);
+        localStorage.setItem(managedUsersKey, JSON.stringify(nextUsers));
+        setNewUser({ name: "", email: "", password: "" });
+        setAddUserOpen(false);
+        toast.success("User added");
+      })
+      .catch((error: any) => {
+        toast.error(error?.response?.data?.message || "Unable to add user");
+      });
   };
 
   const deleteManagedUser = (id: string) => {
-    const nextUsers = managedUsers.filter((managedUser) => managedUser.id !== id);
-    setManagedUsers(nextUsers);
-    localStorage.setItem(managedUsersKey, JSON.stringify(nextUsers));
-    toast.success("User deleted");
+    crmApi
+      .deleteAdminUser(id)
+      .then(() => {
+        const nextUsers = managedUsers.filter((managedUser) => managedUser.id !== id);
+        setManagedUsers(nextUsers);
+        localStorage.setItem(managedUsersKey, JSON.stringify(nextUsers));
+        toast.success("User deleted");
+      })
+      .catch((error: any) => {
+        toast.error(error?.response?.data?.message || "Unable to delete user");
+      });
   };
 
   return (
@@ -303,18 +346,15 @@ export function SettingsPage() {
       >
         {addUserOpen && (
           <div className="mb-4 rounded-md border border-[#dfe5ee] bg-[#f8fafc] p-4">
-            <div className="grid gap-3 md:grid-cols-[1fr_1fr_180px_auto] md:items-end">
+            <div className="grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto] md:items-end">
               <Field label="Name">
                 <Input className={settingsInputClass} value={newUser.name} onChange={(event) => setNewUser((current) => ({ ...current, name: event.target.value }))} placeholder="e.g. Jane Admin" />
               </Field>
               <Field label="Email">
                 <Input className={settingsInputClass} type="email" value={newUser.email} onChange={(event) => setNewUser((current) => ({ ...current, email: event.target.value }))} placeholder="name@example.com" />
               </Field>
-              <Field label="Role">
-                <select className={`${settingsInputClass} h-10 w-full rounded-md border px-3 text-sm`} value={newUser.role} onChange={(event) => setNewUser((current) => ({ ...current, role: event.target.value as ManagedUser["role"] }))}>
-                  <option value="Manager">Manager</option>
-                  <option value="Administrator">Administrator</option>
-                </select>
+              <Field label="Password">
+                <Input className={settingsInputClass} type="password" value={newUser.password} onChange={(event) => setNewUser((current) => ({ ...current, password: event.target.value }))} placeholder="Minimum 6 characters" />
               </Field>
               <Button className="h-10 bg-[#ef1228] text-white hover:bg-[#d90f22]" onClick={addManagedUser}>
                 <Plus className="h-4 w-4" />
@@ -325,25 +365,22 @@ export function SettingsPage() {
         )}
         <div className="overflow-x-auto rounded-md border border-[#dfe5ee]">
           <div className="min-w-[930px]">
-            <div className="grid grid-cols-[1.25fr_1.45fr_150px_130px_180px_90px] bg-[#f8fafc] px-4 py-3 text-xs font-bold text-[#344054]">
+            <div className="grid grid-cols-[1.35fr_1.55fr_130px_180px_90px] bg-[#f8fafc] px-4 py-3 text-xs font-bold text-[#344054]">
               <span>Name</span>
               <span>Email</span>
-              <span>Role</span>
               <span>Status</span>
               <span>Last Login</span>
               <span>Action</span>
             </div>
-            <UserRow initials={initials} name={settings.profileName || "Admin User"} email={settings.profileEmail || "admin@eelectrics.co.uk"} role="Administrator" status="Active" lastLogin="08 Jul 2026, 10:30 AM" tone="red" />
+            <UserRow initials={initials} name={settings.profileName || "Admin User"} email={settings.profileEmail || "admin@eelectrics.co.uk"} status="Active" lastLogin="08 Jul 2026, 10:30 AM" />
             {managedUsers.map((managedUser) => (
               <UserRow
                 key={managedUser.id}
                 initials={userInitials(managedUser.name)}
                 name={managedUser.name}
                 email={managedUser.email}
-                role={managedUser.role}
                 status={managedUser.status}
                 lastLogin={managedUser.lastLogin}
-                tone={managedUser.tone}
                 onDelete={() => deleteManagedUser(managedUser.id)}
               />
             ))}
@@ -419,29 +456,24 @@ function UserRow({
   initials,
   name,
   email,
-  role,
   status,
   lastLogin,
-  tone,
   onDelete
 }: {
   initials: string;
   name: string;
   email: string;
-  role: string;
   status: string;
   lastLogin: string;
-  tone: "red" | "blue";
   onDelete?: () => void;
 }) {
   return (
-    <div className="grid grid-cols-[1.25fr_1.45fr_150px_130px_180px_90px] items-center border-t border-[#e7ecf3] px-4 py-3 text-sm">
+    <div className="grid grid-cols-[1.35fr_1.55fr_130px_180px_90px] items-center border-t border-[#e7ecf3] px-4 py-3 text-sm">
       <div className="flex items-center gap-3">
         <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#071527] text-xs font-bold text-white">{initials}</span>
         <span className="font-semibold">{name}</span>
       </div>
       <span className="text-[#344054]">{email}</span>
-      <span className={cn("w-fit rounded-md px-2.5 py-1 text-xs font-bold", tone === "red" ? "bg-[#fff1f3] text-[#ef1228]" : "bg-[#eaf2ff] text-[#175cd3]")}>{role}</span>
       <span className="inline-flex w-fit items-center gap-1 rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700">
         <Check className="h-3.5 w-3.5" />
         {status}

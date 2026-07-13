@@ -15,10 +15,15 @@ export const crmApi = {
   login: async (payload: { email: string; password: string }) =>
     (await api.post<{ token: string; user: { name: string; email: string; role: string } }>("/auth/login", payload)).data,
   me: async () => (await api.get<{ name: string; email: string; role: string }>("/auth/me")).data,
+  adminUsers: async () => (await api.get<Array<{ id: string; name: string; email: string; status: "Active"; lastLogin: string }>>("/auth/users")).data,
+  createAdminUser: async (payload: { name: string; email: string; password: string }) =>
+    (await api.post<{ id: string; name: string; email: string; status: "Active"; lastLogin: string }>("/auth/users", payload)).data,
+  deleteAdminUser: async (id: string) => (await api.delete<{ id: string; deleted: boolean }>(`/auth/users/${id}`)).data,
   dashboard: async () => (await api.get<DashboardSummary>("/dashboard")).data,
   clients: async (q?: string) => (await api.get<Client[]>("/clients", { params: { q } })).data,
   client: async (id: string) => (await api.get<Client>(`/clients/${id}`)).data,
-  documents: async (params?: { type?: DocumentType; status?: string; q?: string }) =>
+  updateClient: async (id: string, payload: unknown) => (await api.put<Client>(`/clients/${id}`, payload)).data,
+  documents: async (params?: { type?: DocumentType; status?: string; q?: string; clientId?: string }) =>
     (await api.get<DocumentRecord[]>("/documents", { params })).data,
   document: async (id: string) => (await api.get<DocumentRecord>(`/documents/${id}`)).data,
   createDocument: async (payload: unknown) => (await api.post<DocumentRecord>("/documents", payload)).data,

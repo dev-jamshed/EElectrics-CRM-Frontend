@@ -40,6 +40,18 @@ export function LoginPage() {
           navigate("/", { replace: true });
           return;
         }
+        const managedUsers = JSON.parse(localStorage.getItem("modern-crm-settings-users") || "[]") as Array<{ name?: string; email?: string; password?: string }>;
+        const matchedUser = managedUsers.find((item) => item.email?.trim().toLowerCase() === email.trim().toLowerCase() && item.password === password);
+        if (matchedUser?.email) {
+          login(localStorage.getItem("modern-crm-token") || "modern-crm-local-token", {
+            name: matchedUser.name || "Admin User",
+            email: matchedUser.email,
+            role: "Administrator"
+          });
+          toast.success("Welcome back");
+          navigate("/", { replace: true });
+          return;
+        }
       } catch {
         // Fall through to the normal invalid login message.
       }

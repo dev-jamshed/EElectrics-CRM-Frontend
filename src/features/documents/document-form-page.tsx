@@ -469,6 +469,7 @@ export function DocumentFormPage() {
   const { id, type } = useParams();
   const [searchParams] = useSearchParams();
   const sourceDocumentId = searchParams.get("sourceDocumentId") ?? undefined;
+  const clientIdParam = searchParams.get("clientId") ?? undefined;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isEdit = Boolean(id);
@@ -484,6 +485,11 @@ export function DocumentFormPage() {
     queryKey: ["document", sourceDocumentId],
     queryFn: () => crmApi.document(sourceDocumentId!),
     enabled: Boolean(sourceDocumentId)
+  });
+  const { data: selectedClient } = useQuery({
+    queryKey: ["client", clientIdParam],
+    queryFn: () => crmApi.client(clientIdParam!),
+    enabled: Boolean(clientIdParam && !isEdit && !sourceDocumentId)
   });
   const { data: clients = [] } = useQuery({
     queryKey: ["clients", "invoice-form"],
@@ -577,6 +583,22 @@ export function DocumentFormPage() {
       lineItems: seed.lineItems?.length ? seed.lineItems : current.lineItems
     }));
   }, [seed, isEdit, documentType, copyDocumentText]);
+
+  useEffect(() => {
+    if (!selectedClient || isEdit || sourceDocumentId) return;
+    const recentDocument = selectedClient.documents?.find((item) => item.addressLine || item.extraAddress || item.postalCode);
+    setForm((current) => ({
+      ...current,
+      clientId: selectedClient.id,
+      firstName: selectedClient.firstName ?? "",
+      lastName: selectedClient.lastName ?? "",
+      email: selectedClient.email ?? "",
+      phone: selectedClient.phone ?? "",
+      postalCode: recentDocument?.postalCode ?? current.postalCode,
+      addressLine: recentDocument?.addressLine ?? current.addressLine,
+      extraAddress: recentDocument?.extraAddress ?? current.extraAddress
+    }));
+  }, [selectedClient, isEdit, sourceDocumentId]);
 
   const handleImages = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);

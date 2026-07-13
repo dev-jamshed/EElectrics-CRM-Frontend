@@ -15,6 +15,7 @@ export function DocumentsPage() {
   const [searchParams] = useSearchParams();
   const type = (searchParams.get("type") as DocumentType | null) ?? "";
   const status = searchParams.get("status") ?? "";
+  const clientId = searchParams.get("clientId") ?? "";
   const title = searchParams.get("title") ?? "All Records";
   const createActions = type
     ? [{ type, label: type === "BOOKING" ? "Booking" : type === "INVOICE" ? "Invoice" : "Quotation" }]
@@ -24,8 +25,8 @@ export function DocumentsPage() {
         { type: "QUOTATION" as const, label: "Quotation" }
       ];
   const { data = [], isLoading } = useQuery({
-    queryKey: ["documents", type, status],
-    queryFn: () => crmApi.documents({ type: type || undefined, status: status || undefined })
+    queryKey: ["documents", type, status, clientId],
+    queryFn: () => crmApi.documents({ type: type || undefined, status: status || undefined, clientId: clientId || undefined })
   });
   const deleteMutation = useMutation({
     mutationFn: (id: string) => crmApi.deleteDocument(id),

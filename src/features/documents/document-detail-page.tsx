@@ -18,13 +18,12 @@ import {
   Receipt,
   Send,
   Trash2,
-  Wallet
+  Wallet,
+  type LucideIcon
 } from "lucide-react";
 import { crmApi } from "@/lib/api";
 import { currency, displayName, documentDisplayTitle, documentTypeLabel, hasDocumentRevisionActivity } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/input";
 import type { DocumentRecord, MailboxThread } from "@/types/crm";
 
@@ -193,179 +192,387 @@ export function DocumentDetailPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
-        <div>
-          <div className="mb-2 flex items-center gap-2">
-            <Badge>{documentTypeLabel(doc.type)}</Badge>
-            {hasRevisionDetails ? <Badge className="bg-primary/10 text-primary">Revision {doc.revisionNo}</Badge> : null}
-            <Badge>{doc.status}</Badge>
-            <Badge className={doc.paymentStatus === "PAID" ? "bg-primary text-primary-foreground" : ""}>
-              {doc.paymentStatus === "PAID" ? "Paid" : "Unpaid"}
-            </Badge>
-            <Badge>S.No {doc.caseFile?.serialNo ?? "Standalone"}</Badge>
+    <ModernBillingDetail
+      doc={doc}
+      connectedRecords={connectedRecords}
+      hasRevisionDetails={hasRevisionDetails}
+      onBack={() => navigate(-1)}
+      onOpenPdf={openPdf}
+      onSendEmail={() => sendMutation.mutate()}
+      sendingEmail={sendMutation.isPending}
+      onClone={() => cloneMutation.mutate()}
+      cloning={cloneMutation.isPending}
+      onDelete={() => {
+        if (window.confirm("Delete this record?")) deleteMutation.mutate();
+      }}
+      deleting={deleteMutation.isPending}
+      onMarkPaid={() => paidMutation.mutate()}
+      markingPaid={paidMutation.isPending}
+    />
+  );
+}
+
+function ModernBillingDetail({
+  doc,
+  connectedRecords,
+  hasRevisionDetails,
+  onBack,
+  onOpenPdf,
+  onSendEmail,
+  sendingEmail,
+  onClone,
+  cloning,
+  onDelete,
+  deleting,
+  onMarkPaid,
+  markingPaid
+}: {
+  doc: DocumentRecord;
+  connectedRecords: DocumentRecord[];
+  hasRevisionDetails: boolean;
+  onBack: () => void;
+  onOpenPdf: () => void;
+  onSendEmail: () => void;
+  sendingEmail: boolean;
+  onClone: () => void;
+  cloning: boolean;
+  onDelete: () => void;
+  deleting: boolean;
+  onMarkPaid: () => void;
+  markingPaid: boolean;
+}) {
+  const noun = doc.type === "QUOTATION" ? "Quotation" : "Invoice";
+  const isInvoice = doc.type === "INVOICE";
+  const paid = doc.paymentStatus === "PAID" || doc.status === "PAID";
+  const total = Number(doc.total || 0);
+  const subtotal = doc.lineItems?.length ? doc.lineItems.reduce((sum, item) => sum + Number(item.total || 0), 0) : total;
+  const issueDate = doc.issueDate || doc.createdAt;
+  const dueDate = doc.dueDate;
+
+  return (
+    <div className="mx-auto max-w-[1540px] space-y-4 text-[#101828]">
+      <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-start">
+        <div className="min-w-0">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" className="h-9 border-[#d9e0ea] bg-white text-[#101828] hover:bg-[#f8fafc]" onClick={onBack}>
+              <ArrowLeft className="h-4 w-4" />
+              Back
+            </Button>
+            <span className="rounded-md border border-[#d9e0ea] bg-white px-3 py-2 text-sm font-semibold">{noun}</span>
+            <span className={doc.status === "DRAFT" ? "rounded-md border border-[#bfdbfe] bg-[#eff6ff] px-3 py-2 text-sm font-semibold text-[#2563eb]" : "rounded-md border border-[#d9e0ea] bg-[#f8fafc] px-3 py-2 text-sm font-semibold text-[#344054]"}>
+              {titleCase(doc.status)}
+            </span>
+            {isInvoice ? (
+              <span className={paid ? "rounded-md border border-[#bbf7d0] bg-[#ecfdf3] px-3 py-2 text-sm font-semibold text-[#15803d]" : "rounded-md border border-[#ffd0d6] bg-[#fff1f3] px-3 py-2 text-sm font-semibold text-[#ef1228]"}>
+                {paid ? "Paid" : "Unpaid"}
+              </span>
+            ) : null}
+            {hasRevisionDetails ? <span className="rounded-md bg-[#eef2ff] px-3 py-2 text-sm font-semibold text-[#344054]">Revision {doc.revisionNo}</span> : null}
           </div>
-          <h1 className="text-3xl font-semibold">{documentDisplayTitle(doc)}</h1>
-          <p className="text-muted-foreground">{doc.jobTitle}</p>
+          <h1 className="truncate text-[34px] font-bold tracking-[-0.03em]">{noun} - {doc.documentNo}</h1>
+          <p className="mt-1 text-sm text-[#53627a]">{doc.jobTitle || "-"}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => cloneMutation.mutate()} loading={cloneMutation.isPending}>
-            <CopyPlus className="h-4 w-4" /> New revision
+
+        <div className="flex flex-wrap gap-2 xl:justify-end">
+          <Button variant="outline" className="h-11 border-[#d9e0ea] bg-white px-5 font-semibold text-[#101828] hover:bg-[#f8fafc]" onClick={onClone} loading={cloning}>
+            <CopyPlus className="h-4 w-4" />
+            New Revision
           </Button>
-          <Button asChild variant="outline">
+          <Button asChild className="h-11 bg-[#ef1228] px-5 font-semibold text-white hover:bg-[#d90f22]">
             <Link to={`/documents/${doc.id}/edit`}>
-              <Edit className="h-4 w-4" /> Edit current
+              <Edit className="h-4 w-4" />
+              Edit Current
             </Link>
           </Button>
-          <Button variant="outline" onClick={openPdf}>
-            <FileText className="h-4 w-4" /> PDF
+          <Button variant="outline" className="h-11 border-[#d9e0ea] bg-white px-5 font-semibold text-[#101828] hover:bg-[#f8fafc]" onClick={onOpenPdf}>
+            <FileText className="h-4 w-4" />
+            View PDF
           </Button>
-          <Button
-            variant="destructive"
-            onClick={() => {
-              if (window.confirm("Delete this record?")) deleteMutation.mutate();
-            }}
-            loading={deleteMutation.isPending}
-          >
-            <Trash2 className="h-4 w-4" /> Delete
+          <Button variant="outline" className="h-11 border-[#d9e0ea] bg-white px-5 font-semibold text-[#101828] hover:bg-[#f8fafc]" onClick={onSendEmail} loading={sendingEmail}>
+            <Mail className="h-4 w-4" />
+            {sendingEmail ? "Sending..." : "Send Email"}
           </Button>
-          <Button onClick={() => sendMutation.mutate()} loading={sendMutation.isPending}>
-            <Mail className="h-4 w-4" /> {sendMutation.isPending ? "Sending..." : "Send email"}
-          </Button>
-          {doc.type === "INVOICE" && doc.paymentStatus !== "PAID" ? (
-            <Button variant="secondary" onClick={() => paidMutation.mutate()} loading={paidMutation.isPending}>
-              <Wallet className="h-4 w-4" /> Mark paid
+          {isInvoice && !paid ? (
+            <Button className="h-11 bg-[#ef1228] px-5 font-semibold text-white hover:bg-[#d90f22]" onClick={onMarkPaid} loading={markingPaid}>
+              <Wallet className="h-4 w-4" />
+              Mark Paid
             </Button>
           ) : null}
+          <Button variant="outline" className="h-11 border-[#ffd0d6] bg-white px-5 font-semibold text-[#ef1228] hover:bg-[#fff1f3]" onClick={onDelete} loading={deleting}>
+            <Trash2 className="h-4 w-4" />
+            Delete
+          </Button>
         </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_.8fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Details</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-2">
-              <Info label="Client" value={displayName(doc.client)} />
-              <Info label="Email" value={doc.client?.email ?? "-"} />
-              <Info label="CC" value={doc.cc ?? "-"} />
-              <Info label="Phone no" value={doc.phoneNo ?? doc.client?.phone ?? "-"} />
-              <Info label="Postal code" value={doc.postalCode ?? "-"} />
-              <Info label="Address" value={doc.addressLine ?? "-"} />
-              <Info label="Extra address" value={doc.extraAddress ?? "-"} />
-              <Info label="Payment status" value={doc.paymentStatus === "PAID" ? "Paid" : "Unpaid"} />
-              <Info label="Paid at" value={doc.paidAt ? formatDateTime(doc.paidAt) : "-"} />
-              <Info label="Email status" value={doc.emailStatus ?? "-"} />
-              {doc.emailError ? <Info label="Email error" value={doc.emailError} /> : null}
-              <Info label="Include" value={includeOptions.length ? includeOptions.join(", ") : "-"} />
-              <Info label="Price" value={currency(doc.price ?? doc.total)} />
-              {hasRevisionDetails ? <Info label="Revision" value={`Revision ${doc.revisionNo}`} /> : null}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_600px]">
+        <div className="space-y-4">
+          <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+            <h2 className="mb-4 text-lg font-bold">{noun} Details</h2>
+            <div className="grid gap-x-12 gap-y-5 md:grid-cols-2">
+              <BillingInfo label="Client" value={displayName(doc.client)} />
+              <BillingInfo label="Due Date" value={formatDate(dueDate)} />
+              <BillingInfo label="Email" value={doc.client?.email ?? "-"} link={doc.client?.email ? `mailto:${doc.client.email}` : undefined} />
+              <BillingInfo label="Job Description" value={doc.jobTitle || "-"} />
+              <BillingInfo label="Phone" value={doc.phoneNo ?? doc.client?.phone ?? "-"} />
+              {isInvoice ? <BillingInfo label="Payment Status" value={paid ? "Paid" : "Unpaid"} accent={!paid} /> : <BillingInfo label="Status" value={titleCase(doc.status)} />}
+              <BillingInfo label="Address" value={doc.addressLine ?? "-"} />
+              <BillingInfo label="Paid At" value={doc.paidAt ? formatDateTime(doc.paidAt) : "-"} />
+              <BillingInfo label="Issue Date" value={formatDate(issueDate)} />
+              <BillingInfo label="Email Status" value={emailStatusLabel(doc.emailStatus)} />
             </div>
-            <div>
-              <div className="text-sm font-medium">Greeting description</div>
-              <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{doc.greeting || "-"}</p>
-            </div>
-            <div>
-              <div className="text-sm font-medium">{bodyLabel(doc.type)}</div>
-              <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">
-                {doc.description || "No description"}
-              </p>
-            </div>
-            <div>
-              <div className="text-sm font-medium">Email body text</div>
-              <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{doc.emailBody || "-"}</p>
-            </div>
-            <div>
-              <div className="text-sm font-medium">PDF notes</div>
-              <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{doc.pdfNotes || "-"}</p>
-            </div>
-          </CardContent>
-        </Card>
+            {doc.emailError ? <div className="mt-4 rounded-md border border-[#ffd0d6] bg-[#fff1f3] p-3 text-sm text-[#ef1228]">{doc.emailError}</div> : null}
+          </section>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Connected records</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {connectedRecords.map((item) => (
-              <Link key={item.id} to={`/documents/${item.id}`} className="flex items-center justify-between gap-3 rounded-md border p-3 transition hover:bg-secondary">
-                <div className="min-w-0">
-                  <div className="truncate font-medium">{documentDisplayTitle(item)}</div>
-                  <div className="text-xs text-muted-foreground">{recordDate(item)}</div>
-                </div>
-                <Badge>{documentTypeLabel(item.type)}</Badge>
-              </Link>
-            ))}
-            {!connectedRecords.length ? <div className="text-sm text-muted-foreground">No connected records</div> : null}
-          </CardContent>
-        </Card>
-      </div>
-
-      {doc.lineItems.length ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Items</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <table className="w-full text-sm">
-              <thead className="text-muted-foreground">
-                <tr>
-                  <th className="py-2 text-left">Type</th>
-                  <th className="py-2 text-left">Item</th>
-                  <th className="py-2 text-left">Qty</th>
-                  <th className="py-2 text-left">Price</th>
-                  <th className="py-2 text-left">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {doc.lineItems.map((item) => (
-                  <tr key={item.id} className="border-t">
-                    <td className="py-3">{item.kind}</td>
-                    <td className="py-3">{item.title}</td>
-                    <td className="py-3">{item.quantity}</td>
-                    <td className="py-3">{currency(item.unitPrice)}</td>
-                    <td className="py-3">{currency(item.total)}</td>
+          <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+            <h2 className="mb-4 text-lg font-bold">Items</h2>
+            <div className="overflow-hidden rounded-lg border border-[#dfe5ee]">
+              <table className="w-full min-w-[640px] table-fixed text-left text-sm">
+                <thead className="bg-[#f8fafc] text-xs font-bold text-[#101828]">
+                  <tr>
+                    <th className="w-[48%] px-4 py-3">Description</th>
+                    <th className="w-[12%] px-4 py-3 text-center">Qty</th>
+                    <th className="w-[20%] px-4 py-3 text-right">Rate</th>
+                    <th className="w-[20%] px-4 py-3 text-right">Amount</th>
                   </tr>
+                </thead>
+                <tbody className="divide-y divide-[#edf1f6]">
+                  {doc.lineItems?.length ? (
+                    doc.lineItems.map((item) => (
+                      <tr key={item.id ?? item.title}>
+                        <td className="px-4 py-4">{item.title || item.description || "-"}</td>
+                        <td className="px-4 py-4 text-center">{Number(item.quantity || 0)}</td>
+                        <td className="px-4 py-4 text-right">{currency(item.unitPrice)}</td>
+                        <td className="px-4 py-4 text-right">{currency(item.total)}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td className="px-4 py-8 text-center text-[#667085]" colSpan={4}>No items added.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-4 ml-auto w-full max-w-sm overflow-hidden rounded-lg border border-[#dfe5ee]">
+              <div className="flex items-center justify-between border-b border-[#edf1f6] px-5 py-4 text-sm">
+                <span>Subtotal</span>
+                <span>{currency(subtotal)}</span>
+              </div>
+              <div className="flex items-center justify-between px-5 py-4">
+                <span className="text-xl font-bold">Total</span>
+                <span className="text-2xl font-bold text-[#ef1228]">{currency(total)}</span>
+              </div>
+            </div>
+          </section>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <BillingTextPanel title={`${noun} Description`} value={doc.description || doc.jobTitle || "-"} />
+            <BillingTextPanel title="Notes" value={doc.emailNote || doc.pdfNotes || "-"} />
+          </div>
+
+          {doc.attachments?.length ? (
+            <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-lg font-bold">Images</h2>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {doc.attachments.map((attachment) => (
+                  <a key={attachment.id ?? attachment.name} href={attachment.dataUrl} target="_blank" rel="noreferrer" className="overflow-hidden rounded-md border border-[#dfe5ee] bg-[#f8fafc]">
+                    <img src={attachment.dataUrl} alt={attachment.name} className="h-36 w-full object-cover" />
+                    <div className="truncate p-2 text-xs text-[#667085]">{attachment.name}</div>
+                  </a>
                 ))}
-              </tbody>
-            </table>
-            <div className="mt-4 text-right text-2xl font-semibold">{currency(doc.total)}</div>
-          </CardContent>
-        </Card>
-      ) : null}
+              </div>
+            </section>
+          ) : null}
 
-      {doc.attachments?.length ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Images</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {doc.attachments.map((attachment) => (
-              <a key={attachment.id ?? attachment.name} href={attachment.dataUrl} target="_blank" rel="noreferrer" className="overflow-hidden rounded-md border">
-                <img src={attachment.dataUrl} alt={attachment.name} className="h-40 w-full object-cover" />
-                <div className="truncate p-2 text-xs text-muted-foreground">{attachment.name}</div>
-              </a>
-            ))}
-          </CardContent>
-        </Card>
-      ) : null}
+          {doc.revisions?.length ? (
+            <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-lg font-bold">Revision History</h2>
+              <div className="space-y-2">
+                {doc.revisions.map((revision) => (
+                  <Link key={revision.id} to={`/documents/${revision.id}`} className="flex items-center justify-between gap-3 rounded-md border border-[#dfe5ee] p-3 hover:border-[#ef1228]">
+                    <span className="min-w-0 truncate font-medium">{documentDisplayTitle(revision)}</span>
+                    <span className="shrink-0 text-sm text-[#667085]">Revision {revision.revisionNo}</span>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </div>
 
-      {doc.revisions?.length ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Revision history</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {doc.revisions.map((revision) => (
-              <Link key={revision.id} to={`/documents/${revision.id}`} className="flex items-center justify-between gap-3 rounded-md border p-3">
-                <span className="min-w-0 truncate font-medium">{documentDisplayTitle(revision)}</span>
-                <span className="shrink-0 text-sm text-muted-foreground">Revision {revision.revisionNo}</span>
-              </Link>
-            ))}
-          </CardContent>
-        </Card>
-      ) : null}
+        <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
+          <BillingPreviewPanel doc={doc} noun={noun} paid={paid} subtotal={subtotal} total={total} issueDate={issueDate} dueDate={dueDate} />
+          <BillingConnectedRecords doc={doc} connectedRecords={connectedRecords} />
+          <BillingTimeline doc={doc} paid={paid} />
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function BillingInfo({ label, value, link, accent }: { label: string; value: string; link?: string; accent?: boolean }) {
+  return (
+    <div className="grid grid-cols-[130px_1fr] items-start gap-4 text-sm">
+      <div className="font-medium text-[#53627a]">{label}</div>
+      {link ? (
+        <a className="break-words font-medium text-[#2563eb] hover:underline" href={link}>{value}</a>
+      ) : accent ? (
+        <span className="w-fit rounded-md border border-[#ffd0d6] bg-[#fff1f3] px-2 py-1 text-xs font-bold text-[#ef1228]">{value}</span>
+      ) : (
+        <div className="break-words font-medium">{value}</div>
+      )}
+    </div>
+  );
+}
+
+function BillingTextPanel({ title, value }: { title: string; value: string }) {
+  return (
+    <section className="min-h-[150px] rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+      <h2 className="text-lg font-bold">{title}</h2>
+      <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-[#53627a]">{value}</p>
+    </section>
+  );
+}
+
+function BillingPreviewPanel({
+  doc,
+  noun,
+  paid,
+  subtotal,
+  total,
+  issueDate,
+  dueDate
+}: {
+  doc: DocumentRecord;
+  noun: string;
+  paid: boolean;
+  subtotal: number;
+  total: number;
+  issueDate?: string;
+  dueDate?: string;
+}) {
+  return (
+    <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+      <h2 className="mb-4 text-lg font-bold">Live PDF Preview</h2>
+      <div className="rounded-lg border border-[#dfe5ee] bg-white p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <img src="https://res.cloudinary.com/djneoqoqk/image/upload/v1734727264/email_logo_aqoox6.png" alt="E Electrics" className="h-auto w-[170px]" />
+            <div className="mt-3 text-xs font-bold">E ELECTRICS LTD</div>
+          </div>
+          <div className="text-right">
+            <div className="text-3xl font-black uppercase text-[#ef1228]">{noun}</div>
+            <PreviewMeta label={`${noun} #:`} value={doc.documentNo} />
+            <PreviewMeta label="Issue Date:" value={formatDate(issueDate)} />
+            <PreviewMeta label="Due Date:" value={formatDate(dueDate)} />
+            {doc.type === "INVOICE" ? <span className={paid ? "mt-2 inline-flex rounded bg-[#16a34a] px-2 py-1 text-xs font-bold text-white" : "mt-2 inline-flex rounded bg-[#ef1228] px-2 py-1 text-xs font-bold text-white"}>{paid ? "Paid" : "Unpaid"}</span> : null}
+          </div>
+        </div>
+
+        <div className="mt-5 text-sm leading-5">
+          <div className="font-bold">Bill To:</div>
+          <div>{displayName(doc.client)}</div>
+          <div>{doc.addressLine || "-"}</div>
+          <div>{doc.phoneNo || doc.client?.phone || "-"}</div>
+          <div>{doc.client?.email || "-"}</div>
+        </div>
+
+        <div className="mt-5 overflow-hidden border border-[#f3c4c9]">
+          <div className="grid grid-cols-[1fr_64px_90px_100px] bg-[#ef1228] px-3 py-2 text-xs font-bold uppercase text-white">
+            <span>Description</span>
+            <span className="text-center">Qty</span>
+            <span className="text-right">Rate</span>
+            <span className="text-right">Amount</span>
+          </div>
+          {(doc.lineItems ?? []).map((item) => (
+            <div key={item.id ?? item.title} className="grid grid-cols-[1fr_64px_90px_100px] border-b border-[#edf1f6] px-3 py-2 text-xs">
+              <span className="truncate">{item.title || "-"}</span>
+              <span className="text-center">{Number(item.quantity || 0)}</span>
+              <span className="text-right">{currency(item.unitPrice)}</span>
+              <span className="text-right">{currency(item.total)}</span>
+            </div>
+          ))}
+          <div className="flex justify-end px-3 py-2 text-xs">
+            <span className="mr-8">Subtotal</span>
+            <span className="w-28 text-right">{currency(subtotal)}</span>
+          </div>
+          <div className="flex items-center justify-between bg-[#ef1228] px-4 py-3 text-base font-bold uppercase text-white">
+            <span>Total Due</span>
+            <span>{currency(total)}</span>
+          </div>
+        </div>
+
+        <div className="mt-4 text-xs leading-5">
+          <p><span className="font-bold">Payment Method:</span> Bank Transfer</p>
+          <p className="mt-3 italic">Thank you for your business.</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PreviewMeta({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="mt-1 grid grid-cols-[92px_1fr] gap-2 text-xs">
+      <span className="font-bold">{label}</span>
+      <span>{value}</span>
+    </div>
+  );
+}
+
+function BillingConnectedRecords({ doc, connectedRecords }: { doc: DocumentRecord; connectedRecords: DocumentRecord[] }) {
+  return (
+    <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+      <h2 className="mb-4 flex items-center gap-2 text-lg font-bold">
+        <Link2 className="h-5 w-5 text-[#ef1228]" />
+        Connected Records
+      </h2>
+      <div className="overflow-hidden rounded-lg border border-[#edf1f6]">
+        {doc.client?.id ? (
+          <Link to={`/clients/${doc.client.id}`} className="flex items-center justify-between border-b border-[#edf1f6] px-4 py-3 text-sm hover:bg-[#f8fafc]">
+            <span>Client</span>
+            <span className="inline-flex items-center gap-2 font-semibold text-[#2563eb]">{displayName(doc.client)} <ArrowLeft className="h-4 w-4 rotate-180" /></span>
+          </Link>
+        ) : null}
+        {connectedRecords.map((item) => (
+          <Link key={item.id} to={`/documents/${item.id}`} className="flex items-center justify-between border-b border-[#edf1f6] px-4 py-3 text-sm last:border-b-0 hover:bg-[#f8fafc]">
+            <span>{documentTypeLabel(item.type)}</span>
+            <span className="inline-flex items-center gap-2 font-semibold text-[#2563eb]">{item.documentNo} <ArrowLeft className="h-4 w-4 rotate-180" /></span>
+          </Link>
+        ))}
+        {!doc.client?.id && !connectedRecords.length ? <div className="px-4 py-6 text-center text-sm text-[#667085]">No connected records</div> : null}
+      </div>
+    </section>
+  );
+}
+
+function BillingTimeline({ doc, paid }: { doc: DocumentRecord; paid: boolean }) {
+  const noun = doc.type === "QUOTATION" ? "Quotation" : "Invoice";
+  return (
+    <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+      <h2 className="mb-4 flex items-center gap-2 text-lg font-bold">
+        <CalendarDays className="h-5 w-5 text-[#ef1228]" />
+        Activity Timeline
+      </h2>
+      <div className="space-y-4">
+        <TimelineLine icon={Receipt} title={`${noun} created`} detail={`Admin User - ${formatDateTime(doc.createdAt)}`} active />
+        <TimelineLine icon={Mail} title={doc.emailStatus === "SENT" ? `${noun} email sent` : `${noun} marked as ${titleCase(doc.status)}`} detail={`Admin User - ${formatDateTime(doc.sentAt || doc.updatedAt)}`} />
+        {paid ? <TimelineLine icon={Wallet} title="Payment received" detail={formatDateTime(doc.paidAt || doc.updatedAt)} success /> : null}
+      </div>
+    </section>
+  );
+}
+
+function TimelineLine({ icon: Icon, title, detail, active, success }: { icon: LucideIcon; title: string; detail: string; active?: boolean; success?: boolean }) {
+  return (
+    <div className="flex gap-3">
+      <div className={success ? "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#dcfce7] text-[#15803d]" : active ? "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#ef1228] text-white" : "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#071527] text-white"}>
+        <Icon className="h-4 w-4" />
+      </div>
+      <div className="min-w-0">
+        <div className="text-sm font-bold">{title}</div>
+        <div className="mt-1 text-xs text-[#667085]">{detail}</div>
+      </div>
     </div>
   );
 }
@@ -905,13 +1112,27 @@ function parseInclude(value?: string) {
   }
 }
 
+function emailStatusLabel(value?: string) {
+  if (!value) return "-";
+  if (value === "NOT_SENT") return "Not sent";
+  if (value === "SENT") return "Sent";
+  if (value === "FAILED") return "Failed";
+  return titleCase(value);
+}
+
 function recordDate(record: { type: string; bookingDate?: string; issueDate?: string; createdAt?: string }) {
   const value = record.type === "BOOKING" ? record.bookingDate : record.issueDate ?? record.createdAt;
   if (!value) return "-";
   return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(value));
 }
 
-function formatDateTime(value: string) {
+function formatDate(value?: string) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(value));
+}
+
+function formatDateTime(value?: string) {
+  if (!value) return "-";
   return new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "short",

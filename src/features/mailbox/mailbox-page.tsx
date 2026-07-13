@@ -194,13 +194,37 @@ export function MailboxPage() {
   const messages = thread?.messages ?? [];
 
   useEffect(() => {
+    if (searchParams.get("compose") === "1") return;
     if (filteredThreads.some((item) => item.id === selectedId)) return;
     if (filteredThreads[0]?.id) {
       setSearchParams({ thread: filteredThreads[0].id }, { replace: true });
       return;
     }
     if (selectedId) setSearchParams({}, { replace: true });
-  }, [selectedId, filteredThreads, setSearchParams]);
+  }, [selectedId, filteredThreads, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (searchParams.get("compose") !== "1") return;
+    const to = searchParams.get("to") ?? "";
+    const subject = searchParams.get("subject") ?? "";
+    const body = searchParams.get("body") ?? "";
+
+    setCompose((current) => ({
+      ...current,
+      to: to || current.to,
+      subject: subject || current.subject,
+      body: body || current.body
+    }));
+    setComposeOpen(true);
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete("compose");
+      next.delete("to");
+      next.delete("subject");
+      next.delete("body");
+      return next;
+    }, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     setReply("");

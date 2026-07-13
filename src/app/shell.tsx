@@ -321,7 +321,9 @@ function InvoiceNavGroup({
               : item.label !== "Mailbox" && item.to === "/mailbox"
                 ? false
                 : target.pathname === "/documents"
-                  ? activePath === "/documents" && new URLSearchParams(activeSearch).get("type") === target.searchParams.get("type")
+                  ? activePath === "/documents" &&
+                    new URLSearchParams(activeSearch).get("type") === target.searchParams.get("type") &&
+                    new URLSearchParams(activeSearch).get("status") === target.searchParams.get("status")
                   : activePath === target.pathname);
           return (
             <Link
