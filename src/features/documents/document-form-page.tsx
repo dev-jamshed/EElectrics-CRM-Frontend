@@ -1206,88 +1206,210 @@ export function DocumentFormPage() {
 
   if (form.type === "BOOKING") {
     return (
-      <div className="space-y-4">
-        <Card>
-          <CardHeader className="flex-row items-center justify-between">
-            <CardTitle className="flex items-center gap-2 text-sm">
-              <Calendar className="h-4 w-4" /> Create Booking
-            </CardTitle>
-            <Button asChild size="sm">
-              <Link to="/documents?type=BOOKING&status=SENT&title=Booked%20Bookings">Back</Link>
+      <div className="mx-auto max-w-[1540px] space-y-3 text-[#101828] [color-scheme:light]">
+        <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
+          <div>
+            <Button
+              type="button"
+              variant="ghost"
+              className="mb-1 h-8 px-0 text-[#53627a] hover:bg-transparent hover:text-[#ef1228]"
+              onClick={() => navigate(-1)}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back
             </Button>
-          </CardHeader>
-        </Card>
+            <h1 className="text-[28px] font-bold tracking-[-0.02em]">{isEdit ? "Edit Booking" : "New Booking"}</h1>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" className="h-10 border-[#d9e0ea] bg-white px-5 text-[#101828] hover:bg-[#f8fafc]">
+              <Check className="h-4 w-4" /> Help
+            </Button>
+            <Button type="button" variant="outline" className="h-10 border-[#d9e0ea] bg-white px-5 text-[#101828] hover:bg-[#f8fafc]" onClick={() => submitDocument({ sendMail: false, status: "DRAFT" })} loading={mutation.isPending}>
+              <Save className="h-4 w-4" /> Save Draft
+            </Button>
+            <Button asChild size="icon" variant="outline" className="h-10 w-10 border-[#d9e0ea] bg-white text-[#101828] hover:bg-[#f8fafc]">
+              <Link to="/settings">
+                <Settings className="h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
+        </div>
 
-        <Card>
-          <CardContent className="grid gap-4 pt-5 md:grid-cols-3">
-            <IconField icon={User} label="First Name" value={form.firstName} onChange={(firstName) => setForm({ ...form, firstName })} />
-            <IconField icon={User} label="Last Name (Optional)" value={form.lastName} onChange={(lastName) => setForm({ ...form, lastName })} />
-            <IconField icon={Mail} label="Email" type="email" value={form.email} onChange={(email) => setForm({ ...form, email })} />
-            <IconField icon={Mail} label="CC (Optional)" type="email" value={form.cc} onChange={(cc) => setForm({ ...form, cc })} />
-            <IconField icon={Phone} label="Phone Number /UK Format/ (Optional)" value={form.phone} onChange={(phone) => setForm({ ...form, phone })} />
-            <label className="space-y-2">
-              <span className="text-xs font-medium">Postal Code</span>
-              <div className="flex">
-                <div className="flex h-10 w-10 items-center justify-center rounded-l-md border border-r-0 text-muted-foreground">
-                  <Hash className="h-4 w-4" />
+        <div className="rounded-lg border border-[#dfe5ee] bg-white px-8 py-4 shadow-sm">
+          <div className="grid gap-5 lg:grid-cols-4 lg:items-center">
+            {[
+              ["Client", "Add client details"],
+              ["Booking Details", "Date, address and job"],
+              ["Email & Images", "Message and attachments"],
+              ["Preview", "Review and send"]
+            ].map(([step, caption], index) => (
+              <div key={step} className="flex items-center gap-4">
+                <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold ${index < 2 ? "bg-[#ef1228] text-white" : "bg-[#d7dde6] text-[#344054]"}`}>
+                  {index + 1}
+                </span>
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold">{step}</div>
+                  <div className="truncate text-xs text-[#53627a]">{caption}</div>
                 </div>
-                <Input
-                  className="rounded-none"
-                  value={form.postalCode}
-                  onChange={(event) => setForm({ ...form, postalCode: event.target.value })}
-                />
-                <Button type="button" className="rounded-l-none" size="icon" onClick={searchPostcodeAddress}>
-                  <Search className="h-4 w-4" />
-                </Button>
+                {index < 3 ? <div className="ml-auto hidden h-px flex-1 bg-[#cfd7e3] xl:block" /> : null}
               </div>
-            </label>
-            <label className="space-y-2 md:col-span-2">
-              <span className="text-xs font-medium">Address</span>
-              <div className="flex">
-                <div className="flex h-10 w-10 items-center justify-center rounded-l-md border border-r-0 text-muted-foreground">
-                  <Home className="h-4 w-4" />
-                </div>
-                <div className="min-w-0 flex-1">
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-3 xl:grid-cols-[minmax(620px,1fr)_minmax(520px,.92fr)]">
+          <div className="space-y-3">
+            <div className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-base font-bold">Client & Booking Details</h2>
+              <div className="grid gap-4 md:grid-cols-2">
+                <IconField icon={User} label="First Name" value={form.firstName} onChange={(firstName) => setForm({ ...form, firstName })} inputClassName={invoiceInputClass} iconClassName="border-[#cfd7e3] bg-white text-[#53627a]" />
+                <IconField icon={User} label="Last Name (Optional)" value={form.lastName} onChange={(lastName) => setForm({ ...form, lastName })} inputClassName={invoiceInputClass} iconClassName="border-[#cfd7e3] bg-white text-[#53627a]" />
+                <IconField icon={Mail} label="Email" type="email" value={form.email} onChange={(email) => setForm({ ...form, email })} inputClassName={invoiceInputClass} iconClassName="border-[#cfd7e3] bg-white text-[#53627a]" />
+                <IconField icon={Phone} label="Phone Number /UK Format/ (Optional)" value={form.phone} onChange={(phone) => setForm({ ...form, phone })} inputClassName={invoiceInputClass} iconClassName="border-[#cfd7e3] bg-white text-[#53627a]" />
+                <IconField icon={Mail} label="CC (Optional)" type="email" value={form.cc} onChange={(cc) => setForm({ ...form, cc })} inputClassName={invoiceInputClass} iconClassName="border-[#cfd7e3] bg-white text-[#53627a]" />
+                <label className="space-y-2">
+                  <span className="text-xs font-medium">Postal Code</span>
+                  <div className="flex">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-l-md border border-r-0 border-[#cfd7e3] bg-white text-[#53627a]">
+                      <Hash className="h-4 w-4" />
+                    </div>
+                    <Input
+                      className={`rounded-none ${invoiceInputClass}`}
+                      value={form.postalCode}
+                      onChange={(event) => setForm({ ...form, postalCode: event.target.value })}
+                    />
+                    <Button type="button" className="rounded-l-none bg-[#ef1228] hover:bg-[#d90f22]" size="icon" onClick={searchPostcodeAddress}>
+                      <Search className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </label>
+                <label className="space-y-2 md:col-span-2">
+                  <span className="text-xs font-medium">Address</span>
                   <AddressCombobox
                     value={form.addressLine}
                     onChange={(value, selected) => setForm({ ...form, addressLine: value, selectedAddress: selected })}
                     lookupQuery={addressLookup.query}
                     lookupNonce={addressLookup.nonce}
+                    inputClassName={invoiceInputClass}
                   />
-                </div>
+                </label>
+                <IconField icon={Home} label="Address 2 (Optional)" value={form.extraAddress} onChange={(extraAddress) => setForm({ ...form, extraAddress })} inputClassName={invoiceInputClass} iconClassName="border-[#cfd7e3] bg-white text-[#53627a]" />
+                <IconField
+                  icon={Calendar}
+                  label="Booking Date"
+                  type="date"
+                  value={form.bookingDate || form.issueDate}
+                  onChange={(value) => setForm({ ...form, issueDate: value, bookingDate: value })}
+                  inputClassName={invoiceInputClass}
+                  iconClassName="border-[#cfd7e3] bg-white text-[#53627a]"
+                />
+                <IconField icon={FileText} label="Job Description" value={form.jobTitle} onChange={(jobTitle) => setForm({ ...form, jobTitle })} inputClassName={invoiceInputClass} iconClassName="border-[#cfd7e3] bg-white text-[#53627a]" />
               </div>
-            </label>
-            <IconField icon={Home} label="Address 2 (Optional)" value={form.extraAddress} onChange={(extraAddress) => setForm({ ...form, extraAddress })} />
-            <IconField
-              icon={Calendar}
-              label="Date"
-              type="date"
-              value={form.bookingDate || form.issueDate}
-              onChange={(value) => setForm({ ...form, issueDate: value, bookingDate: value })}
-            />
-            <IconField icon={FileText} label="Job Description" value={form.jobTitle} onChange={(jobTitle) => setForm({ ...form, jobTitle })} />
-
-            <label className="space-y-2 md:col-span-3">
-              <span className="text-xs font-medium">Greeting Description</span>
-              <RichTextarea value={form.greeting} onChange={(greeting) => setForm({ ...form, greeting })} minHeight="min-h-56" />
-            </label>
-
-            <label className="space-y-2 md:col-span-3">
-              <span className="text-xs font-medium">Notes (optional)</span>
-              <RichTextarea value={form.emailNote} onChange={(emailNote) => setForm({ ...form, emailNote })} minHeight="min-h-36" />
-            </label>
-
-            <div className="flex flex-wrap items-center gap-3 md:col-span-3">
-              <Button onClick={() => submitDocument()} disabled={!form.firstName || !form.jobTitle} loading={mutation.isPending}>
-                <Save className="h-4 w-4" /> Save
-              </Button>
-              <Button type="button" variant="secondary" onClick={previewBooking}>
-                Preview Booking
-              </Button>
-              <MailToggleButton checked={form.sendMail} onChange={(sendMail) => setForm({ ...form, sendMail })} />
             </div>
-          </CardContent>
-        </Card>
+
+            <div className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-bold">Message Content</h2>
+                  <p className="mt-1 text-xs text-[#667085]">This content is used in booking email and PDF.</p>
+                </div>
+                <Mail className="h-5 w-5 text-[#ef1228]" />
+              </div>
+              <div className="grid gap-5">
+                <label className="space-y-2">
+                  <span className="text-xs font-medium">Greeting Description</span>
+                  <RichTextarea value={form.greeting} onChange={(greeting) => setForm({ ...form, greeting })} minHeight="min-h-40" />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-xs font-medium">Booking Description</span>
+                  <RichTextarea value={form.description} onChange={(description) => setForm({ ...form, description })} minHeight="min-h-36" />
+                </label>
+                <label className="space-y-2">
+                  <span className="text-xs font-medium">Notes</span>
+                  <RichTextarea value={form.emailNote} onChange={(emailNote) => setForm({ ...form, emailNote })} minHeight="min-h-24" />
+                </label>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-bold">Images & Email</h2>
+                  <p className="mt-1 text-xs text-[#667085]">Upload job images and choose email options.</p>
+                </div>
+                <ImagePlus className="h-5 w-5 text-[#ef1228]" />
+              </div>
+              <label className="block space-y-2">
+                <span className="text-xs font-medium">Images</span>
+                <Input className={invoiceInputClass} type="file" multiple accept="image/*" onChange={handleImages} />
+              </label>
+              {form.attachments.length ? (
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {form.attachments.map((attachment, index) => (
+                    <div key={`${attachment.name}-${index}`} className="overflow-hidden rounded-md border border-[#dfe5ee] bg-[#f8fafc]">
+                      <img src={attachment.dataUrl} alt={attachment.name} className="h-28 w-full object-cover" />
+                      <div className="flex items-center justify-between gap-2 p-2">
+                        <span className="truncate text-xs text-[#667085]">{attachment.name}</span>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 text-[#ef1228] hover:bg-red-50"
+                          onClick={() =>
+                            setForm((current) => ({
+                              ...current,
+                              attachments: current.attachments.filter((_, itemIndex) => itemIndex !== index)
+                            }))
+                          }
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-4 rounded-md border border-dashed border-[#d5dce7] bg-[#fcfdff] p-6 text-center text-sm font-semibold text-[#667085]">No images selected</div>
+              )}
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                <MailToggleButton checked={form.sendMail} onChange={(sendMail) => setForm({ ...form, sendMail })} />
+                <ToggleSwitch label="Send Images in Mail ?" checked={form.sendImages} onChange={(sendImages) => setForm({ ...form, sendImages })} />
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-[#dfe5ee] bg-white p-4 shadow-sm">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <Button type="button" variant="outline" className="h-12 border-[#cfd7e3] bg-white text-[#101828] hover:bg-[#f8fafc]" onClick={() => navigate(-1)}>
+                  <ArrowLeft className="h-5 w-5" /> Back
+                </Button>
+                <Button type="button" variant="outline" className="h-12 border-[#cfd7e3] bg-white text-[#101828] hover:bg-[#f8fafc]" onClick={() => submitDocument({ sendMail: false, status: "DRAFT" })} loading={mutation.isPending}>
+                  <Save className="h-5 w-5" /> Save Draft
+                </Button>
+                <Button className="h-12 bg-[#ef1228] text-white hover:bg-[#d90f22]" onClick={() => submitDocument()} disabled={!form.firstName || !form.jobTitle} loading={mutation.isPending}>
+                  <Send className="h-5 w-5" /> Send Booking Email
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4 xl:sticky xl:top-4 xl:self-start">
+            <BookingPreviewPanel
+              documentNo={existing?.documentNo ?? "Draft"}
+              bookingDate={form.bookingDate || form.issueDate}
+              clientName={clientDisplayName(form.firstName, form.lastName)}
+              addressLine={form.addressLine}
+              extraAddress={form.extraAddress}
+              postalCode={form.postalCode}
+              jobTitle={form.jobTitle}
+              greeting={form.greeting}
+              bookingDescription={form.description}
+              notes={form.emailNote}
+              previewMode={invoicePreviewMode}
+              onPreviewModeChange={setInvoicePreviewMode}
+              onPreviewBooking={previewBooking}
+            />
+          </div>
+        </div>
       </div>
     );
   }
@@ -1581,6 +1703,135 @@ function InvoicePreviewPanel({
           <p className="pt-3 text-center text-xs">Thank you for choosing E Electrics Ltd.</p>
         </div>
       </div>
+    </div>
+  );
+}
+
+function BookingPreviewPanel({
+  documentNo,
+  bookingDate,
+  clientName,
+  addressLine,
+  extraAddress,
+  postalCode,
+  jobTitle,
+  greeting,
+  bookingDescription,
+  notes,
+  previewMode,
+  onPreviewModeChange,
+  onPreviewBooking
+}: {
+  documentNo: string;
+  bookingDate: string;
+  clientName: string;
+  addressLine: string;
+  extraAddress: string;
+  postalCode: string;
+  jobTitle: string;
+  greeting: string;
+  bookingDescription: string;
+  notes: string;
+  previewMode: "desktop" | "mobile";
+  onPreviewModeChange: (mode: "desktop" | "mobile") => void;
+  onPreviewBooking: () => void;
+}) {
+  const compact = previewMode === "mobile";
+  const previewWidth = compact ? "max-w-[340px]" : "max-w-[720px]";
+
+  return (
+    <div className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+      <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+        <div>
+          <h2 className="text-base font-bold">Live Preview</h2>
+          <p className="mt-1 text-xs text-[#667085]">Booking email and PDF layout preview.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="flex rounded-md border border-[#d9e0ea] bg-white p-1">
+            <button
+              type="button"
+              className={`flex h-8 w-9 items-center justify-center rounded ${previewMode === "desktop" ? "border border-[#ef1228] bg-[#fff1f3] text-[#ef1228]" : "text-[#53627a] hover:bg-[#f8fafc]"}`}
+              onClick={() => onPreviewModeChange("desktop")}
+              title="Desktop preview"
+            >
+              <Monitor className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              className={`flex h-8 w-9 items-center justify-center rounded ${previewMode === "mobile" ? "border border-[#ef1228] bg-[#fff1f3] text-[#ef1228]" : "text-[#53627a] hover:bg-[#f8fafc]"}`}
+              onClick={() => onPreviewModeChange("mobile")}
+              title="Mobile preview"
+            >
+              <Smartphone className="h-4 w-4" />
+            </button>
+          </div>
+          <Button type="button" variant="outline" className="h-10 border-[#d9e0ea] bg-white px-4 text-[#101828] hover:bg-[#f8fafc]" onClick={onPreviewBooking}>
+            <FileText className="h-4 w-4" />
+            Preview Booking
+          </Button>
+        </div>
+      </div>
+
+      <div className="overflow-auto rounded-lg border border-[#dfe5ee] bg-[#f8fafc] p-4">
+        <div className={`mx-auto min-h-[760px] ${previewWidth} bg-white p-8 text-[#101828] shadow-sm transition-all`}>
+          <div className="border-t-[3px] border-[#DD2D3E] pt-4">
+            <img src={oldCrmLogoUrl} alt="E Electrics" className="h-auto w-[190px]" />
+          </div>
+
+          <div className={`mt-5 grid gap-6 ${compact ? "grid-cols-1" : "grid-cols-[1fr_.9fr]"}`}>
+            <div className="space-y-1 text-[13px] leading-5">
+              <p className="font-bold">E Electrics | E Electrics Limited</p>
+              <p className="font-bold">Head Office: Dent Close, Essex, RM15 5DS</p>
+              <p>Registration No: 12418331</p>
+              <p>NAPIT Member No: 65513</p>
+              <p>info@eelectrics.co.uk | 0800 999 1452</p>
+            </div>
+            <div className="space-y-1 text-[13px] leading-5">
+              <PreviewLine label="Booking:" value={documentNo || "Draft"} />
+              <PreviewLine label="Date:" value={formatOldDate(bookingDate)} />
+              <PreviewLine label="FAO:" value={clientName} />
+              <PreviewLine label="Address:" value={addressLine || "-"} />
+              {extraAddress ? <PreviewLine label="Address 2:" value={extraAddress} /> : null}
+              {postalCode ? <PreviewLine label="Postcode:" value={postalCode} /> : null}
+            </div>
+          </div>
+
+          <div className="mt-5 border-b-[3px] border-[#DD2D3E] pb-1 text-xl font-bold">BOOKING</div>
+
+          <div className="mt-6 overflow-hidden border border-[#f3c4c9]">
+            <div className="grid grid-cols-[1fr_150px] bg-[#DD2D3E] px-4 py-3 text-sm font-bold text-white">
+              <span>Description</span>
+              <span>Date</span>
+            </div>
+            <div className="grid grid-cols-[1fr_150px] bg-[#fff4df] px-4 py-4 text-sm leading-6">
+              <div>
+                <p className="font-bold">{jobTitle || "Booking job description"}</p>
+                {greeting ? <p className="mt-3 whitespace-pre-wrap">{greeting}</p> : null}
+                {bookingDescription ? <p className="mt-3 whitespace-pre-wrap">{bookingDescription}</p> : null}
+              </div>
+              <div>{formatOldDate(bookingDate)}</div>
+            </div>
+          </div>
+
+          <div className="mt-6 text-sm leading-6">
+            <p className="border-b-2 border-[#DD2D3E] pb-1 text-base font-bold">Notes:</p>
+            <p className="mt-2 whitespace-pre-wrap">{notes || defaultBookingNote}</p>
+          </div>
+
+          <div className="mt-8 border-t border-[#DD2D3E] pt-4 text-center text-xs font-semibold">
+            Thank you for choosing E Electrics Ltd.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PreviewLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid grid-cols-[82px_1fr] gap-2">
+      <span>{label}</span>
+      <span className="break-words text-right font-medium">{value || "-"}</span>
     </div>
   );
 }
