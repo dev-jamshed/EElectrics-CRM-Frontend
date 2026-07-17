@@ -1,18 +1,21 @@
-import { ColumnDef } from "@tanstack/react-table";
+import type { ColumnDef } from "@tanstack/react-table";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
-import { FilePlus2, Trash2 } from "lucide-react";
+import { CalendarDays, FilePlus2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { useState } from "react";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { DataTable } from "@/components/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { crmApi } from "@/lib/api";
-import { currency, displayName, documentDisplayTitle, documentTypeLabel, hasDocumentRevisionActivity } from "@/lib/utils";
+import { currency, displayName, documentDisplayTitle, documentTypeLabel, hasDocumentRevisionActivity, plainTextFromHtml } from "@/lib/utils";
 import type { DocumentRecord, DocumentType } from "@/types/crm";
 
 export function DocumentsPage() {
   const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const type = (searchParams.get("type") as DocumentType | null) ?? "";
   const status = searchParams.get("status") ?? "";
   const clientId = searchParams.get("clientId") ?? "";
@@ -33,10 +36,48 @@ export function DocumentsPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["documents"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      setPendingDeleteId(null);
       toast.success("Deleted successfully");
     },
     onError: () => toast.error("Unable to delete")
   });
+
+  const bookingColumns: ColumnDef<DocumentRecord>[] =
+    type === "BOOKING"
+      ? [
+          {
+            header: "Confirmed",
+            accessorFn: (row) => (row.bookingConfirmed ? "Yes" : "No"),
+            cell: ({ row }) => (
+              <Badge className={row.original.bookingConfirmed ? "rounded-full bg-emerald-500/10 text-emerald-600" : "rounded-full bg-amber-500/10 text-amber-600"}>
+                {row.original.bookingConfirmed ? "Confirmed" : "Not confirmed"}
+              </Badge>
+            )
+          }
+        ]
+      : [];
+  const paymentColumns: ColumnDef<DocumentRecord>[] =
+    type && type !== "BOOKING"
+      ? [
+          {
+            id: "payment",
+            header: "Payment",
+            accessorFn: (row) => row.paymentStatus,
+            cell: ({ row }) => (
+              <Badge className={row.original.paymentStatus === "PAID" ? "rounded-full bg-emerald-500/10 text-emerald-600" : "rounded-full bg-amber-500/10 text-amber-600"}>
+                {row.original.paymentStatus === "PAID" ? "Paid" : "Unpaid"}
+              </Badge>
+            )
+          },
+          {
+            header: "Paid at",
+            accessorFn: (row) => row.paidAt ?? "",
+            cell: ({ row }) => (
+              <span className="text-sm text-muted-foreground">{row.original.paidAt ? formatDateTime(row.original.paidAt) : "-"}</span>
+            )
+          }
+        ]
+      : [];
 
   const columns: ColumnDef<DocumentRecord>[] = [
     {
@@ -69,45 +110,28 @@ export function DocumentsPage() {
     },
     {
       header: "Job",
-      accessorKey: "jobTitle"
+      accessorKey: "jobTitle",
+      cell: ({ row }) => <span className="line-clamp-2 break-words [overflow-wrap:anywhere]">{plainTextFromHtml(row.original.jobTitle) || "-"}</span>
     },
     {
       header: "Status",
-      accessorKey: "status"
+      accessorKey: "status",
+      cell: ({ row }) => <StatusBadge status={row.original.status} />
     },
-    ...(type === "BOOKING"
-      ? [
-          {
-            header: "Confirmed",
-            accessorFn: (row: DocumentRecord) => (row.bookingConfirmed ? "Yes" : "No"),
-            cell: ({ row }: { row: { original: DocumentRecord } }) => (
-              <Badge className={row.original.bookingConfirmed ? "bg-primary text-primary-foreground" : ""}>
-                {row.original.bookingConfirmed ? "Confirmed" : "Not confirmed"}
-              </Badge>
-            )
-          } satisfies ColumnDef<DocumentRecord>
-        ]
-      : []),
-    ...(type && type !== "BOOKING"
-      ? [
-          {
-            header: "Payment",
-            accessorFn: (row: DocumentRecord) => row.paymentStatus,
-            cell: ({ row }: { row: { original: DocumentRecord } }) => (
-              <Badge className={row.original.paymentStatus === "PAID" ? "bg-primary text-primary-foreground" : ""}>
-                {row.original.paymentStatus === "PAID" ? "Paid" : "Unpaid"}
-              </Badge>
-            )
-          } satisfies ColumnDef<DocumentRecord>,
-          {
-            header: "Paid at",
-            accessorFn: (row: DocumentRecord) => row.paidAt ?? "",
-            cell: ({ row }: { row: { original: DocumentRecord } }) => (
-              <span className="text-sm text-muted-foreground">{row.original.paidAt ? formatDateTime(row.original.paidAt) : "-"}</span>
-            )
-          } satisfies ColumnDef<DocumentRecord>
-        ]
-      : []),
+    ...bookingColumns,
+    ...paymentColumns,
+    {
+      id: "recordDate",
+      header: "Date",
+      accessorFn: (row) => row.bookingDate || row.dueDate || row.issueDate || row.createdAt,
+      filterFn: "dateRange",
+      cell: ({ row }) => (
+        <span className="inline-flex items-center gap-2 text-muted-foreground">
+          <CalendarDays className="h-4 w-4" />
+          {formatDate(row.original.bookingDate || row.original.dueDate || row.original.issueDate || row.original.createdAt)}
+        </span>
+      )
+    },
     {
       header: "Total",
       accessorFn: (row) => Number(row.total),
@@ -121,10 +145,9 @@ export function DocumentsPage() {
           type="button"
           size="sm"
           variant="destructive"
-          onClick={() => {
-            if (window.confirm("Delete this record?")) deleteMutation.mutate(row.original.id);
-          }}
-          loading={deleteMutation.isPending}
+          className="rounded-xl"
+          onClick={() => setPendingDeleteId(row.original.id)}
+          loading={deleteMutation.isPending && pendingDeleteId === row.original.id}
         >
           <Trash2 className="h-4 w-4" /> Delete
         </Button>
@@ -133,11 +156,11 @@ export function DocumentsPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-[1540px] space-y-5 text-[#101828]">
+    <div className="mx-auto max-w-[1540px] space-y-5">
       <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
         <div>
-          <h1 className="text-[32px] font-bold tracking-[-0.03em]">Work</h1>
-          <p className="text-sm text-[#53627a]">Bookings, invoices and quotations follow the CRM saved/send workflow.</p>
+          <h1 className="text-3xl font-semibold tracking-tight text-foreground">Work</h1>
+          <p className="text-sm text-muted-foreground">Bookings, invoices and quotations follow the CRM saved/send workflow.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           {createActions.map((action, index) => (
@@ -145,7 +168,7 @@ export function DocumentsPage() {
               key={action.type}
               asChild
               variant={index === 0 ? "default" : "outline"}
-              className={index === 0 ? "h-10 bg-[#ef1228] px-5 text-white hover:bg-[#d90f22]" : "h-10 border-[#d9e0ea] bg-white px-5 text-[#101828] hover:bg-[#f8fafc]"}
+              className={index === 0 ? "h-10 rounded-xl px-5 shadow-apple" : "h-10 rounded-xl border-border/70 bg-card px-5"}
             >
               <Link to={`/documents/new/${action.type}`}>
                 {index === 0 ? <FilePlus2 className="h-4 w-4" /> : null}
@@ -156,17 +179,87 @@ export function DocumentsPage() {
         </div>
       </div>
 
-      <section className="overflow-hidden rounded-lg border border-[#dfe5ee] bg-white shadow-sm">
-        <div className="border-b border-[#edf1f6] px-4 py-3">
-          <h2 className="text-base font-bold">{title}</h2>
-          <p className="text-xs text-[#667085]">Search, export, print and manage records.</p>
+      <section className="overflow-hidden rounded-2xl border border-border/50 bg-card/60 p-4 shadow-apple backdrop-blur-xl">
+        <div className="mb-4">
+          <h2 className="text-base font-semibold text-foreground">{title}</h2>
+          <p className="text-xs text-muted-foreground">Search, filter by status/date, export, print and manage records.</p>
         </div>
-        <div className="p-4">
-          {isLoading ? <div className="py-10 text-center text-[#667085]">Loading records...</div> : <DataTable data={data} columns={columns} searchPlaceholder="Search records" />}
-        </div>
+        {isLoading ? (
+          <div className="py-12 text-center text-muted-foreground">Loading records...</div>
+        ) : (
+          <DataTable
+            data={data}
+            columns={columns}
+            searchPlaceholder="Search records"
+            dateFilter={{
+              label: "Filter by date",
+              getValue: (record) => record.bookingDate || record.dueDate || record.issueDate || record.createdAt
+            }}
+            filters={[
+              ...(type ? [] : [{ id: "type", label: "All types", options: [
+                { label: "Bookings", value: "BOOKING" },
+                { label: "Invoices", value: "INVOICE" },
+                { label: "Quotations", value: "QUOTATION" }
+              ] }]),
+              { id: "status", label: "All statuses", options: [
+                { label: "Draft", value: "DRAFT" },
+                { label: "Sent", value: "SENT" },
+                { label: "Confirmed", value: "CONFIRMED" },
+                { label: "Paid", value: "PAID" },
+                { label: "Cancelled", value: "CANCELLED" }
+              ] },
+              ...(type && type !== "BOOKING" ? [{ id: "payment", label: "All payments", options: [
+                { label: "Paid", value: "PAID" },
+                { label: "Unpaid", value: "UNPAID" }
+              ] }] : [])
+            ]}
+            getMobileTitle={(record) => documentDisplayTitle(record)}
+            getMobileDescription={(record) => `${displayName(record.client)} | ${plainTextFromHtml(record.jobTitle) || record.documentNo}`}
+            getMobileMeta={(record) => <Badge className="rounded-full">{documentTypeLabel(record.type)}</Badge>}
+            getMobileHref={(record) => `/documents/${record.id}`}
+            getMobileActions={(record) => (
+              <Button type="button" size="sm" variant="ghost" className="h-9 rounded-xl px-3 text-primary hover:bg-primary/10" onClick={() => setPendingDeleteId(record.id)}>
+                <Trash2 className="h-4 w-4" /> Delete
+              </Button>
+            )}
+            emptyText="No records found."
+          />
+        )}
       </section>
+      <ConfirmDialog
+        open={Boolean(pendingDeleteId)}
+        title="Delete record?"
+        description="This will remove the selected booking, invoice or quotation from the CRM. This action cannot be undone."
+        confirmLabel="Delete"
+        loading={deleteMutation.isPending}
+        onOpenChange={(open) => {
+          if (!open && !deleteMutation.isPending) setPendingDeleteId(null);
+        }}
+        onConfirm={() => {
+          if (pendingDeleteId) deleteMutation.mutate(pendingDeleteId);
+        }}
+      />
     </div>
   );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const className =
+    status === "PAID" || status === "CONFIRMED"
+      ? "bg-emerald-500/10 text-emerald-600"
+      : status === "DRAFT"
+        ? "bg-amber-500/10 text-amber-600"
+        : status === "CANCELLED"
+          ? "bg-red-500/10 text-red-600"
+          : "bg-blue-500/10 text-blue-600";
+  return <Badge className={`rounded-full ${className}`}>{status}</Badge>;
+}
+
+function formatDate(value?: string) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric" }).format(date);
 }
 
 function formatDateTime(value: string) {

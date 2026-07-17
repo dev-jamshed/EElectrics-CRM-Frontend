@@ -1,6 +1,19 @@
 import axios from "axios";
 import type { Client, DocumentRecord, DocumentType, DashboardSummary, AddressSuggestion, MailboxSummary, MailboxThread } from "@/types/crm";
 
+export type AppSettings = {
+  profileName: string;
+  profileEmail: string;
+  profilePhone: string;
+  profileAvatar: string;
+  companyName: string;
+  companyAddress: string;
+  registrationNo: string;
+  napitNo: string;
+  companyPhone: string;
+  companyEmail: string;
+};
+
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL ?? "http://localhost:4000/api"
 });
@@ -19,6 +32,11 @@ export const crmApi = {
   createAdminUser: async (payload: { name: string; email: string; password: string }) =>
     (await api.post<{ id: string; name: string; email: string; status: "Active"; lastLogin: string }>("/auth/users", payload)).data,
   deleteAdminUser: async (id: string) => (await api.delete<{ id: string; deleted: boolean }>(`/auth/users/${id}`)).data,
+  appSettings: async (currentEmail: string) => (await api.get<AppSettings>("/auth/settings", { params: { currentEmail } })).data,
+  updateAppSettings: async (payload: AppSettings & { currentEmail: string }) =>
+    (await api.put<AppSettings>("/auth/settings", payload)).data,
+  changePassword: async (payload: { currentEmail: string; currentPassword: string; newPassword: string }) =>
+    (await api.post<{ updated: boolean }>("/auth/change-password", payload)).data,
   dashboard: async () => (await api.get<DashboardSummary>("/dashboard")).data,
   clients: async (q?: string) => (await api.get<Client[]>("/clients", { params: { q } })).data,
   client: async (id: string) => (await api.get<Client>(`/clients/${id}`)).data,
@@ -35,7 +53,7 @@ export const crmApi = {
   markPaid: async (id: string) => (await api.post<DocumentRecord>(`/documents/${id}/mark-paid`, {})).data,
   addresses: async (q: string) => (await api.get<AddressSuggestion[]>("/addresses/search", { params: { q } })).data,
   pdfPreview: async (id: string) => (await api.get<{ html: string }>(`/pdf/documents/${id}`)).data,
-  pdfDownloadUrl: (id: string) => `${String(api.defaults.baseURL ?? "").replace(/\/$/, "")}/pdf/documents/${id}/download`,
+  pdfDownloadUrl: (id: string) => `${String(api.defaults.baseURL ?? "").replace(/\/$/, "")}/pdf/documents/${id}/download?action=download`,
   mailboxStreamUrl: (token: string) =>
     `${String(api.defaults.baseURL ?? "").replace(/\/$/, "")}/mailbox/stream?token=${encodeURIComponent(token)}`,
   mailboxSummary: async () => (await api.get<MailboxSummary>("/mailbox/summary")).data,
@@ -62,9 +80,10 @@ export const crmApi = {
     files.forEach((file) => formData.append("attachments", file));
     return (await api.post<MailboxThread>(`/mailbox/threads/${id}/reply-with-attachments`, formData)).data;
   },
-  mailboxSendEmail: async (payload: { to: string; subject: string; body: string; files: File[] }) => {
+  mailboxSendEmail: async (payload: { to: string; cc?: string; subject: string; body: string; files: File[] }) => {
     const formData = new FormData();
     formData.append("to", payload.to);
+    if (payload.cc) formData.append("cc", payload.cc);
     formData.append("subject", payload.subject);
     formData.append("body", payload.body);
     payload.files.forEach((file) => formData.append("attachments", file));

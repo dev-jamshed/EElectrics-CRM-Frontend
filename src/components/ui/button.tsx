@@ -25,7 +25,7 @@ const sizes = {
 
 export function Button({ className, variant = "default", size = "md", asChild, loading, children, disabled, ...props }: ButtonProps) {
   const classes = cn(
-    "inline-flex items-center justify-center gap-2 rounded-md font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-ring disabled:pointer-events-none disabled:opacity-50",
+    "inline-flex items-center justify-center gap-2 rounded-md font-medium transition-all duration-200 focus:outline-none   disabled:pointer-events-none disabled:opacity-50",
     variants[variant],
     sizes[size],
     className

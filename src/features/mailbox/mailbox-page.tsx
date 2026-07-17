@@ -1,6 +1,7 @@
-﻿import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Archive,
+  ArrowLeft,
   ChevronDown,
   CheckCircle2,
   Clock3,
@@ -21,6 +22,7 @@ import {
 import { useEffect, useMemo, useRef, useState, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type SetStateAction } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Input, Textarea } from "@/components/ui/input";
 import { crmApi } from "@/lib/api";
 import { cn, displayName } from "@/lib/utils";
@@ -123,11 +125,14 @@ function readStoredList<T>(key: string, fallback: T[]): T[] {
 }
 
 function readStoredSnippets(): MailSnippet[] {
-  const stored = readStoredList<MailSnippet>(snippetsKey, []);
-  const defaultsById = new Map(fallbackSnippets.map((snippet) => [snippet.id, snippet]));
-  const mergedStored = stored.map((snippet) => defaultsById.get(snippet.id) ?? snippet);
-  const storedIds = new Set(mergedStored.map((snippet) => snippet.id));
-  return [...mergedStored, ...fallbackSnippets.filter((snippet) => !storedIds.has(snippet.id))];
+  try {
+    const raw = localStorage.getItem(snippetsKey);
+    if (!raw) return fallbackSnippets;
+    const stored = JSON.parse(raw) as MailSnippet[];
+    return Array.isArray(stored) ? stored : fallbackSnippets;
+  } catch {
+    return fallbackSnippets;
+  }
 }
 
 function appendContent(current: string, next: string) {
@@ -145,6 +150,7 @@ export function MailboxPage() {
   const [replyToMessageId, setReplyToMessageId] = useState("");
   const [modal, setModal] = useState<MailboxModal>(null);
   const [composeOpen, setComposeOpen] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<null | { type: "trash" | "delete"; threadId: string }>(null);
   const [draft, setDraft] = useState<MailboxDraft | null>(() => readMailboxDraft());
   const [compose, setCompose] = useState<ComposeState>(() => draftToCompose(readMailboxDraft()));
   const [query, setQuery] = useState("");
@@ -152,6 +158,7 @@ export function MailboxPage() {
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
   const snippets = useMemo(() => readStoredSnippets(), []);
   const selectedId = searchParams.get("thread") ?? "";
+  const mobileThreadOpen = Boolean(selectedId);
   const shouldScrollLatest = searchParams.get("scroll") === "latest";
 
   const { data: mailboxSummary } = useQuery({
@@ -197,6 +204,7 @@ export function MailboxPage() {
     if (searchParams.get("compose") === "1") return;
     if (filteredThreads.some((item) => item.id === selectedId)) return;
     if (filteredThreads[0]?.id) {
+      if (window.matchMedia("(max-width: 1023px)").matches && !selectedId) return;
       setSearchParams({ thread: filteredThreads[0].id }, { replace: true });
       return;
     }
@@ -358,7 +366,7 @@ export function MailboxPage() {
     onError: (error: any) => toast.error(error?.response?.data?.message || "Unable to send email")
   });
 
-  const unreadCount = mailboxSummary?.unreadCount ?? threads.reduce((total, item) => total + (item.unreadCount || 0), 0);
+  const unreadCount = mailboxSummary?.inboxUnreadCount ?? mailboxSummary?.folderCounts?.inboxUnread ?? mailboxSummary?.unreadCount ?? threads.reduce((total, item) => total + (item.unreadCount || 0), 0);
   const folderCounts = mailboxSummary?.folderCounts ?? {};
   const canSendReply = Boolean(reply.trim() || attachments.length);
   const replyToMessage = messages.find((message) => message.id === replyToMessageId);
@@ -383,46 +391,48 @@ export function MailboxPage() {
     replyMutation.mutate({ queueId, body, files, replyToMessageId: replyToMessageId || undefined });
   };
   const threadBadge = thread?.trashedAt
-    ? { label: "Trash", className: "bg-[#fff1f3] text-[#ef1228]" }
+    ? { label: "Trash", className: "bg-primary/10 text-primary" }
     : thread?.archivedAt
-      ? { label: "Archived", className: "bg-[#f3f6fa] text-[#344054]" }
+      ? { label: "Archived", className: "bg-secondary text-muted-foreground" }
       : latestThreadMessage?.direction === "OUTBOUND"
-        ? { label: "Sent email", className: "bg-[#eef7ff] text-[#175cd3]" }
+        ? { label: "Sent email", className: "bg-blue-500/10 text-blue-600 dark:text-blue-300" }
         : thread?.unreadCount
-          ? { label: "Customer reply", className: "bg-[#eef0ff] text-[#4f46e5]" }
-          : { label: "Inbox", className: "bg-[#f3f6fa] text-[#344054]" };
+          ? { label: "Customer reply", className: "bg-violet-500/10 text-violet-600 dark:text-violet-300" }
+          : { label: "Inbox", className: "bg-secondary text-muted-foreground" };
+  const confirmTitle = confirmAction?.type === "delete" ? "Permanently delete email?" : "Move chat to trash?";
+  const confirmDescription =
+    confirmAction?.type === "delete"
+      ? "This email conversation will be permanently deleted. This action cannot be undone."
+      : "This email conversation will move to Trash. You can restore it later from the Trash folder.";
+  const confirmLoading = confirmAction?.type === "delete" ? deleteThreadMutation.isPending : trashThreadMutation.isPending;
 
   return (
     <>
-      <div className="mx-auto max-w-[1540px] text-[#101828]">
-        <div className="mb-4 flex items-center justify-between gap-4">
-          <h1 className="text-[30px] font-bold tracking-[-0.02em]">Mailbox</h1>
-          <div className="flex min-w-0 flex-1 items-center justify-end gap-3">
-            <div className="relative hidden w-full max-w-[430px] md:block">
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#53627a]" />
+      <div className="mx-auto flex h-[calc(100svh-7.5rem)] min-h-0 max-w-[1540px] flex-col text-foreground lg:min-h-[760px]">
+        <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Mailbox</h1>
+          <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-2 sm:flex sm:items-center sm:justify-end">
+            <div className="relative col-span-2 w-full sm:col-span-1 sm:w-[360px] xl:w-[460px]">
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                className="h-12 rounded-md border-[#d9e0ea] bg-white pl-11 pr-11 text-sm text-[#101828] shadow-sm placeholder:text-[#667085] focus:ring-[#ef1228]/20"
+                className="h-11 rounded-xl border-border/70 bg-card/90 pl-10 pr-10 text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus:ring-primary/20"
                 placeholder="Search emails"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
               />
-              <SlidersHorizontal className="absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#53627a]" />
-            </div>
-            <div className="hidden h-12 items-center gap-2 rounded-md border border-[#d9e0ea] bg-white px-4 text-sm font-semibold text-[#101828] shadow-sm xl:flex">
-              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-              Synced just now
+              <SlidersHorizontal className="absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             </div>
             <button
               type="button"
-              className="flex h-12 w-12 items-center justify-center rounded-md border border-[#d9e0ea] bg-white text-[#101828] shadow-sm transition hover:bg-[#f8fafc]"
+              className="flex h-11 w-11 items-center justify-center rounded-xl border border-border/70 bg-card text-foreground shadow-sm transition hover:bg-secondary"
               onClick={() => syncMutation.mutate()}
               disabled={syncMutation.isPending}
             >
-              <RefreshCw className={cn("h-5 w-5", syncMutation.isPending && "animate-spin")} />
+              <RefreshCw className={cn("h-4 w-4", syncMutation.isPending && "animate-spin")} />
             </button>
             <button
               type="button"
-              className="inline-flex h-12 items-center gap-2 rounded-md bg-[#ef1228] px-5 text-sm font-bold text-white shadow-sm transition hover:bg-[#d90f22]"
+              className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-xs font-bold text-primary-foreground shadow-sm transition hover:bg-primary/90 sm:w-auto sm:text-sm"
               onClick={() => setComposeOpen(true)}
             >
               <Pencil className="h-4 w-4" />
@@ -431,12 +441,38 @@ export function MailboxPage() {
           </div>
         </div>
 
-        <div className="grid h-[calc(100vh-9.5rem)] min-h-[760px] gap-3 lg:grid-cols-[250px_minmax(370px,390px)_minmax(560px,1fr)]">
-            <aside className="hidden min-h-0 overflow-hidden rounded-md border border-[#dfe5ee] bg-white shadow-sm lg:flex lg:flex-col">
+        <div className="mb-3 flex gap-2 overflow-x-auto pb-1 lg:hidden">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const active = folder === item.key;
+            const count = item.key === "inbox" ? unreadCount : item.key === "drafts" ? (draft ? 1 : ((folderCounts as any)?.drafts || 0)) : ((folderCounts as any)?.[item.key] || 0);
+            return (
+              <button
+                key={item.key}
+                type="button"
+                className={cn(
+                  "inline-flex h-10 shrink-0 items-center gap-2 rounded-full border px-3 text-xs font-semibold shadow-sm transition",
+                  active ? "border-primary bg-primary text-primary-foreground" : "border-border/70 bg-card text-muted-foreground"
+                )}
+                onClick={() => {
+                  setFolder(item.key);
+                  setSearchParams({}, { replace: true });
+                }}
+              >
+                <Icon className="h-4 w-4" />
+                {item.label}
+                {count ? <span className={cn("rounded-full px-1.5 py-0.5 text-[10px]", active ? "bg-primary-foreground text-primary" : "bg-secondary text-foreground")}>{count}</span> : null}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[250px_minmax(370px,390px)_minmax(560px,1fr)]">
+            <aside className="hidden min-h-0 overflow-hidden rounded-2xl border border-border/60 bg-card/80 shadow-sm backdrop-blur-xl lg:flex lg:flex-col">
               <div className="p-4">
                 <button
                   type="button"
-                  className="flex h-12 w-full items-center justify-center gap-2 rounded-md bg-[#ef1228] text-sm font-bold text-white shadow-sm transition hover:bg-[#d90f22]"
+                  className="flex h-14 w-full items-center justify-center gap-2 rounded-xl bg-primary text-sm font-bold text-primary-foreground shadow-sm transition hover:bg-primary/90"
                   onClick={() => setComposeOpen(true)}
                 >
                   <Pencil className="h-4 w-4" />
@@ -449,23 +485,24 @@ export function MailboxPage() {
                   const Icon = item.icon;
                   const active = folder === item.key;
                   const count =
-                    item.key === "drafts" && draft
-                        ? 1
-                        : folderCounts[item.key] || 0;
+                    item.key === "inbox" ? unreadCount : item.key === "drafts" ? (draft ? 1 : ((folderCounts as any)?.drafts || 0)) : ((folderCounts as any)?.[item.key] || 0);
                   return (
                     <button
                       key={item.key}
                       type="button"
                       className={cn(
-                        "flex h-11 w-full items-center gap-3 rounded-md px-3 text-sm font-medium transition",
-                        active ? "bg-[#fff1f3] text-[#ef1228]" : "text-[#344054] hover:bg-[#f8fafc]"
+                        "flex h-11 w-full items-center gap-3 rounded-xl px-3 text-sm font-medium transition",
+                        active ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-secondary"
                       )}
-                      onClick={() => setFolder(item.key)}
+                      onClick={() => {
+                        setFolder(item.key);
+                        setSearchParams({}, { replace: true });
+                      }}
                     >
-                      <Icon className={cn("h-4 w-4", active ? "text-[#ef1228]" : "text-[#53627a]")} />
+                      <Icon className={cn("h-4 w-4", active ? "text-primary" : "text-muted-foreground")} />
                       <span className="flex-1 text-left">{item.label}</span>
                       {count ? (
-                        <span className={cn("rounded-md px-2 py-0.5 text-[11px] font-bold", active ? "bg-[#ef1228] text-white" : "bg-[#edf1f6] text-[#53627a]")}>
+                        <span className={cn("rounded-lg px-2 py-0.5 text-[11px] font-bold", active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground")}>
                           {count}
                         </span>
                       ) : null}
@@ -475,23 +512,26 @@ export function MailboxPage() {
               </nav>
 
               <div className="mt-auto p-4">
-                <div className="rounded-md border border-[#dfe5ee] bg-white p-3">
-                  <div className="text-sm font-medium text-[#344054]">Mailbox storage</div>
-                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#edf1f6]">
-                    <div className="h-full w-[24%] rounded-full bg-[#ef1228]" />
+                <div className="rounded-2xl border border-border/60 bg-background/50 p-3">
+                  <div className="text-sm font-medium text-foreground">Mailbox storage</div>
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary">
+                    <div className="h-full w-[24%] rounded-full bg-primary" />
                   </div>
-                  <p className="mt-2 text-xs text-[#667085]">2.4 GB of 10 GB used</p>
+                  <p className="mt-2 text-xs text-muted-foreground">2.4 GB of 10 GB used</p>
                 </div>
               </div>
             </aside>
 
-            <section className="min-h-0 overflow-hidden rounded-md border border-[#dfe5ee] bg-white shadow-sm">
-              <div className="flex h-[68px] items-center justify-between border-b border-[#e7ecf3] bg-white px-5">
-                <div className="text-sm font-semibold text-[#101828]">{navItems.find((item) => item.key === folder)?.label ?? "Mailbox"}</div>
+            <section className={cn(
+              "h-full min-h-0 overflow-hidden rounded-2xl border border-border/60 bg-card/85 shadow-sm backdrop-blur-xl lg:block",
+              mobileThreadOpen ? "hidden" : "block"
+            )}>
+              <div className="flex h-[68px] items-center justify-between border-b border-border/60 bg-card/90 px-5">
+                <div className="text-base font-semibold text-foreground">{navItems.find((item) => item.key === folder)?.label ?? "Mailbox"}</div>
                 <div>
                   <button
                     type="button"
-                    className="inline-flex items-center gap-1.5 text-sm font-medium text-[#101828]"
+                    className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground"
                     onClick={() => setSortOrder((current) => (current === "newest" ? "oldest" : "newest"))}
                     title="Toggle sorting"
                   >
@@ -502,10 +542,10 @@ export function MailboxPage() {
               </div>
 
               <div className="h-[calc(100%-4.25rem)] overflow-y-auto">
-                {isLoading ? <div className="rounded-lg bg-white p-4 text-sm text-[#667085]">Loading emails...</div> : null}
+                {isLoading ? <div className="rounded-lg bg-card p-4 text-sm text-muted-foreground">Loading emails...</div> : null}
                 {!filteredThreads.length && !isLoading ? (
-                  <div className="rounded-lg bg-white p-8 text-center text-sm text-[#667085]">
-                    <MailOpen className="mx-auto mb-3 h-9 w-9 text-[#98a2b3]" />
+                  <div className="rounded-lg bg-card p-8 text-center text-sm text-muted-foreground">
+                    <MailOpen className="mx-auto mb-3 h-9 w-9 text-muted-foreground" />
                     No emails found
                   </div>
                 ) : null}
@@ -531,8 +571,8 @@ export function MailboxPage() {
                           if (item.unreadCount) markReadMutation.mutate(item.id);
                         }}
                         className={cn(
-                          "w-full border-b border-[#e7ecf3] p-5 text-left transition",
-                          active ? "bg-[#fff1f3]" : "bg-white hover:bg-[#fff8f9]"
+                          "w-full border-b border-border/50 p-5 text-left transition",
+                          active ? "bg-primary/10" : "bg-card hover:bg-secondary/60"
                         )}
                       >
                         <div className="flex items-start gap-3">
@@ -541,27 +581,27 @@ export function MailboxPage() {
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
-                              <span className={cn("truncate text-sm text-[#101828]", item.unreadCount ? "font-bold" : "font-semibold")}>
+                              <span className={cn("truncate text-sm text-foreground", item.unreadCount ? "font-bold" : "font-semibold")}>
                                 {item.fromName || item.fromEmail || "Unknown sender"}
                               </span>
-                              {item.unreadCount ? <span className="h-2 w-2 shrink-0 rounded-full bg-[#ef1228]" /> : null}
+                              {item.unreadCount ? <span className="h-2 w-2 shrink-0 rounded-full bg-primary" /> : null}
                             </div>
-                            <div className={cn("mt-1 truncate text-sm text-[#101828]", item.unreadCount && "font-semibold")}>{item.subject}</div>
-                            <div className="mt-1 truncate text-sm leading-5 text-[#344054]">{preview || "No preview available"}</div>
+                            <div className={cn("mt-1 truncate text-sm text-foreground", item.unreadCount && "font-semibold")}>{item.subject}</div>
+                            <div className="mt-1 truncate text-sm leading-5 text-muted-foreground">{preview || "No preview available"}</div>
                             <div className="mt-2 flex items-center gap-2">
                               {item.document ? (
-                                <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-semibold text-[#53627a]">{item.document.documentNo}</span>
+                                <span className="rounded-full bg-background/70 px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">{item.document.documentNo}</span>
                               ) : null}
                               {hasAttachments ? (
-                                <span className="inline-flex items-center gap-1 text-[#344054]">
+                                <span className="inline-flex items-center gap-1 text-muted-foreground">
                                   <Paperclip className="h-3 w-3" />
                                 </span>
                               ) : null}
                             </div>
                           </div>
                           <div className="flex shrink-0 flex-col items-end gap-2">
-                            <span className="whitespace-nowrap text-[11px] font-medium text-[#98a2b3]">{formatDate(item.lastMessageAt)}</span>
-                            {item.unreadCount ? <span className="rounded-full bg-[#ef1228] px-2 py-0.5 text-[11px] font-bold text-white">{item.unreadCount}</span> : null}
+                            <span className="whitespace-nowrap text-[11px] font-medium text-muted-foreground">{formatDate(item.lastMessageAt)}</span>
+                            {item.unreadCount ? <span className="rounded-full bg-primary px-2 py-0.5 text-[11px] font-bold text-primary-foreground">{item.unreadCount}</span> : null}
                           </div>
                         </div>
                       </button>
@@ -571,40 +611,46 @@ export function MailboxPage() {
               </div>
             </section>
 
-            <section className="flex min-h-0 flex-col overflow-hidden rounded-md border border-[#dfe5ee] bg-white shadow-sm">
+            <section className={cn(
+              "h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-border/60 bg-card/95 shadow-sm backdrop-blur-xl max-lg:fixed max-lg:inset-x-0 max-lg:bottom-[70px] max-lg:top-[72px] max-lg:z-20 max-lg:h-auto max-lg:rounded-none max-lg:border-x-0 lg:flex",
+              mobileThreadOpen ? "flex" : "hidden"
+            )}>
               {thread ? (
                 <>
-                  <div className="border-b border-[#e7ecf3] px-5 py-7">
-                    <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-start">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <h2 className="line-clamp-1 text-lg font-bold tracking-[-0.01em] text-[#101828]">
-                            {thread.client ? displayName(thread.client) : thread.fromName || thread.fromEmail || "Mailbox"}
-                          </h2>
-                          {thread.document ? (
-                            <Link className="text-[#101828] hover:text-[#ef1228]" to={`/documents/${thread.document.id}`}>
-                              <FileText className="h-4 w-4" />
-                            </Link>
-                          ) : null}
-                        </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-1 text-sm text-[#344054]">
-                          <span>{thread.fromEmail || "customer@email.com"}</span>
-                          {thread.client?.phone || thread.document?.phoneNo ? <span>|</span> : null}
-                          {thread.client?.phone || thread.document?.phoneNo ? <span>{thread.client?.phone || thread.document?.phoneNo}</span> : null}
-                        </div>
-                        <div className="mt-8 flex items-center justify-between gap-4">
-                          <h3 className="line-clamp-1 text-base font-bold text-[#101828]">{thread.subject}</h3>
-                          <span className={cn("shrink-0 rounded-full px-3 py-1 text-xs font-medium", threadBadge.className)}>
-                            {threadBadge.label}
-                          </span>
+                  <div className="border-b border-border/60 bg-card/95 px-2.5 py-2 sm:px-4 sm:py-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex min-w-0 flex-1 items-start gap-2">
+                        <button
+                          type="button"
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition hover:bg-secondary lg:hidden"
+                          onClick={() => setSearchParams({}, { replace: true })}
+                          aria-label="Back to inbox"
+                        >
+                          <ArrowLeft className="h-5 w-5" />
+                        </button>
+                        <div className="min-w-0 flex-1 pt-0.5">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <h2 className="truncate text-base font-semibold tracking-tight text-foreground sm:text-lg">
+                              {thread.client ? displayName(thread.client) : thread.fromName || thread.fromEmail || "Mailbox"}
+                            </h2>
+                            {thread.document ? (
+                              <Link className="shrink-0 text-muted-foreground hover:text-primary" to={`/documents/${thread.document.id}`} title="Open connected record">
+                                <FileText className="h-4 w-4" />
+                              </Link>
+                            ) : null}
+                          </div>
+                          <div className="mt-0.5 truncate text-[11px] text-muted-foreground sm:text-xs">
+                            {thread.fromEmail || "customer@email.com"}
+                            {thread.client?.phone || thread.document?.phoneNo ? ` | ${thread.client?.phone || thread.document?.phoneNo}` : ""}
+                          </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 pt-1 text-[#344054]">
+                      <div className="flex shrink-0 items-center gap-0.5 text-muted-foreground sm:gap-2">
                         <button
                           type="button"
                           className={cn(
-                            "flex h-9 w-9 items-center justify-center rounded-md transition hover:bg-[#f8fafc]",
-                            thread.isStarred && "bg-[#fff1f3] text-[#ef1228]"
+                            "flex h-8 w-8 items-center justify-center rounded-lg transition hover:bg-secondary sm:h-9 sm:w-9 sm:rounded-xl",
+                            thread.isStarred && "bg-primary/10 text-primary"
                           )}
                           onClick={() => toggleStarMutation.mutate(thread.id)}
                           disabled={toggleStarMutation.isPending}
@@ -616,7 +662,7 @@ export function MailboxPage() {
                           <>
                             <button
                               type="button"
-                              className="flex h-9 items-center gap-2 rounded-md px-3 text-sm font-semibold text-[#344054] transition hover:bg-[#f8fafc]"
+                              className="flex h-8 items-center gap-2 rounded-lg px-2 text-xs font-semibold text-muted-foreground transition hover:bg-secondary sm:h-9 sm:rounded-xl sm:px-3 sm:text-sm"
                               onClick={() => restoreThreadMutation.mutate(thread.id)}
                               disabled={restoreThreadMutation.isPending}
                               title="Restore email"
@@ -626,15 +672,12 @@ export function MailboxPage() {
                             </button>
                             <button
                               type="button"
-                              className="flex h-9 items-center gap-2 rounded-md px-3 text-sm font-semibold text-[#ef1228] transition hover:bg-[#fff1f3]"
-                              onClick={() => {
-                                if (window.confirm("Permanently delete this email chat? This cannot be undone.")) deleteThreadMutation.mutate(thread.id);
-                              }}
+                              className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-600 text-white transition hover:bg-red-700 sm:h-9 sm:w-9 sm:rounded-xl"
+                              onClick={() => setConfirmAction({ type: "delete", threadId: thread.id })}
                               disabled={deleteThreadMutation.isPending}
                               title="Permanently delete"
                             >
-                              <Trash2 className="h-5 w-5" />
-                              Delete
+                              <Trash2 className="h-4 w-4" />
                             </button>
                           </>
                         ) : (
@@ -642,8 +685,8 @@ export function MailboxPage() {
                             <button
                               type="button"
                               className={cn(
-                                "flex h-9 w-9 items-center justify-center rounded-md transition hover:bg-[#f8fafc]",
-                                thread.archivedAt && "bg-[#fff1f3] text-[#ef1228]"
+                                "flex h-8 w-8 items-center justify-center rounded-lg transition hover:bg-secondary sm:h-9 sm:w-9 sm:rounded-xl",
+                                thread.archivedAt && "bg-primary/10 text-primary"
                               )}
                               onClick={() => toggleArchiveMutation.mutate(thread.id)}
                               disabled={toggleArchiveMutation.isPending}
@@ -653,58 +696,61 @@ export function MailboxPage() {
                             </button>
                             <button
                               type="button"
-                              className="flex h-9 items-center gap-2 rounded-md px-3 text-sm font-semibold text-[#ef1228] transition hover:bg-[#fff1f3]"
-                              onClick={() => {
-                                if (window.confirm("Delete this full chat and move it to Trash?")) trashThreadMutation.mutate(thread.id);
-                              }}
+                              className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-600 text-white transition hover:bg-red-700 sm:h-9 sm:w-9 sm:rounded-xl"
+                              onClick={() => setConfirmAction({ type: "trash", threadId: thread.id })}
                               disabled={trashThreadMutation.isPending}
                               title="Delete chat"
                             >
-                              <Trash2 className="h-5 w-5" />
-                              Delete chat
+                              <Trash2 className="h-4 w-4" />
                             </button>
                           </>
                         )}
                       </div>
                     </div>
+                    <div className="mt-1.5 flex min-w-0 items-center gap-2 px-1 sm:mt-3 sm:px-0">
+                      <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground sm:text-base">{thread.subject}</h3>
+                      <span className={cn("hidden shrink-0 rounded-full px-3 py-1 text-xs font-medium sm:inline-flex", threadBadge.className)}>
+                        {threadBadge.label}
+                      </span>
+                    </div>
                   </div>
 
-                  <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-white p-5">
+                  <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-background/50 p-2.5 overscroll-contain sm:space-y-4 sm:p-5">
                     {messages.map((message, index) => (
                       <article
                         key={message.id}
                         ref={index === messages.length - 1 ? latestMessageRef : undefined}
                         className={cn(
-                          "rounded-md border border-[#dfe5ee] p-5 shadow-sm",
-                          replyToMessageId === message.id && "ring-2 ring-[#ef1228]/30",
-                          message.direction === "OUTBOUND" ? "bg-[#eef7ff]" : "bg-white"
+                          "rounded-xl border border-border/60 p-3 sm:rounded-2xl sm:p-5 sm:shadow-sm",
+                          replyToMessageId === message.id && "ring-2 ring-primary/30",
+                          message.direction === "OUTBOUND" ? "bg-blue-500/10" : "bg-card"
                         )}
                       >
-                        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+                        <div className="mb-3 flex flex-wrap items-start justify-between gap-2 sm:mb-4 sm:gap-3">
                           <div className="flex min-w-0 items-center gap-3">
                             <div
                               className={cn(
                                 "flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold",
-                                message.direction === "OUTBOUND" ? "rounded-sm bg-white text-[#101828] ring-1 ring-[#dfe5ee]" : avatarTone(message.id)
+                                message.direction === "OUTBOUND" ? "rounded-xl bg-background text-foreground ring-1 ring-border" : avatarTone(message.id)
                               )}
                             >
                               {message.direction === "OUTBOUND" ? "E" : initials(message.fromName || message.fromEmail || "C")}
                             </div>
                             <div className="min-w-0">
-                              <div className="truncate text-sm font-bold text-[#101828]">
+                              <div className="truncate text-sm font-bold text-foreground">
                                 {message.direction === "OUTBOUND" ? "E Electrics Ltd" : message.fromName || message.fromEmail || "Sender"}
                               </div>
                               {message.direction === "OUTBOUND" ? null : (
-                                <div className="truncate text-xs text-[#667085]">{message.fromEmail}</div>
+                                <div className="truncate text-xs text-muted-foreground">{message.fromEmail}</div>
                               )}
                             </div>
                           </div>
-                          <span className="text-xs font-medium text-[#667085]">{formatFullDate(message.sentAt || message.createdAt)}</span>
+                          <span className="text-[10px] font-medium text-muted-foreground sm:text-xs">{formatFullDate(message.sentAt || message.createdAt)}</span>
                         </div>
 
                         {message.replyToMessage ? (
-                          <div className="mb-3 rounded-md border-l-2 border-[#ef1228] bg-[#fff1f3] px-3 py-2 text-xs text-[#667085]">
-                            <div className="font-semibold text-[#101828]">
+                          <div className="mb-3 rounded-xl border-l-2 border-primary bg-primary/10 px-3 py-2 text-xs text-muted-foreground">
+                            <div className="font-semibold text-foreground">
                               Reply to {message.replyToMessage.direction === "OUTBOUND" ? "You" : message.replyToMessage.fromName || message.replyToMessage.fromEmail || "Sender"}
                             </div>
                             <div className="mt-1 line-clamp-2">{message.replyToMessage.textBody || message.replyToMessage.subject}</div>
@@ -713,7 +759,7 @@ export function MailboxPage() {
 
                         <button
                           type="button"
-                          className="block w-full rounded-md text-left text-sm leading-6 text-[#344054] transition hover:bg-[#f8fafc]"
+                          className="block w-full rounded-lg text-left text-[15px] leading-6 text-foreground/85 transition hover:bg-secondary/50 sm:rounded-xl sm:text-sm"
                           onClick={() => setModal({ type: "message", message })}
                         >
                           <span className="whitespace-pre-wrap break-words">{message.textBody || stripHtml(message.htmlBody) || "-"}</span>
@@ -726,20 +772,20 @@ export function MailboxPage() {
                                 key={attachment.id}
                                 type="button"
                                 onClick={() => setModal({ type: "attachment", messageId: message.id, attachment })}
-                                className="inline-flex max-w-full items-center gap-2 rounded-md border border-[#dfe5ee] bg-[#f8fafc] px-2.5 py-1.5 text-xs font-semibold text-[#344054] hover:border-[#ef1228] hover:bg-[#fff8f9]"
+                                className="inline-flex max-w-full items-center gap-2 rounded-xl border border-border/60 bg-secondary/50 px-2.5 py-1.5 text-xs font-semibold text-foreground hover:border-primary/40 hover:bg-primary/10"
                               >
-                                <Paperclip className="h-3.5 w-3.5 shrink-0 text-[#ef1228]" />
+                                <Paperclip className="h-3.5 w-3.5 shrink-0 text-primary" />
                                 <span className="max-w-56 truncate">{attachment.name}</span>
-                                {attachment.size ? <span className="text-[#98a2b3]">{formatFileSize(attachment.size)}</span> : null}
+                                {attachment.size ? <span className="text-muted-foreground">{formatFileSize(attachment.size)}</span> : null}
                               </button>
                             ))}
                           </div>
                         ) : null}
 
-                        <div className="mt-4 flex justify-end">
+                        <div className="mt-3 flex justify-end sm:mt-4">
                           <button
                             type="button"
-                            className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold text-[#53627a] transition hover:bg-[#f3f6fa]"
+                            className="inline-flex h-8 items-center gap-1.5 rounded-xl px-2.5 text-xs font-semibold text-muted-foreground transition hover:bg-secondary"
                             onClick={() => setReplyToMessageId(message.id)}
                           >
                             <Reply className="h-3.5 w-3.5" />
@@ -749,26 +795,26 @@ export function MailboxPage() {
                       </article>
                     ))}
                     {queuedReplies.map((item) => (
-                      <article key={item.id} ref={item.id === queuedReplies[queuedReplies.length - 1]?.id ? latestMessageRef : undefined} className="rounded-md border border-[#d7e8fb] bg-[#eef7ff] p-5 shadow-sm">
+                      <article key={item.id} ref={item.id === queuedReplies[queuedReplies.length - 1]?.id ? latestMessageRef : undefined} className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-5 shadow-sm">
                         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
                           <div className="flex min-w-0 items-center gap-3">
-                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-sm bg-white text-xs font-bold text-[#101828] ring-1 ring-[#dfe5ee]">E</div>
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-background text-xs font-bold text-foreground ring-1 ring-border">E</div>
                             <div className="min-w-0">
-                              <div className="truncate text-sm font-bold text-[#101828]">E Electrics Ltd</div>
-                              <div className="text-xs text-[#667085]">{formatFullDate(item.createdAt)}</div>
+                              <div className="truncate text-sm font-bold text-foreground">E Electrics Ltd</div>
+                              <div className="text-xs text-muted-foreground">{formatFullDate(item.createdAt)}</div>
                             </div>
                           </div>
-                          <span className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold", item.status === "sent" ? "bg-emerald-50 text-emerald-700" : item.status === "failed" ? "bg-[#fff1f3] text-[#ef1228]" : "bg-[#f3f6fa] text-[#667085]")}>
+                          <span className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold", item.status === "sent" ? "bg-emerald-500/10 text-emerald-600" : item.status === "failed" ? "bg-primary/10 text-primary" : "bg-secondary text-muted-foreground")}>
                             {item.status === "sent" ? <CheckCircle2 className="h-3.5 w-3.5" /> : item.status === "sending" ? <Clock3 className="h-3.5 w-3.5" /> : null}
                             {item.status === "sent" ? "Sent" : item.status === "failed" ? "Failed" : "Queued"}
                           </span>
                         </div>
-                        <span className="whitespace-pre-wrap break-words text-sm leading-6 text-[#344054]">{item.body}</span>
+                        <span className="whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">{item.body}</span>
                         {item.fileNames.length ? (
                           <div className="mt-4 flex flex-wrap gap-2">
                             {item.fileNames.map((name) => (
-                              <span key={name} className="inline-flex max-w-full items-center gap-2 rounded-md border border-[#dfe5ee] bg-[#f8fafc] px-2.5 py-1.5 text-xs font-semibold text-[#344054]">
-                                <Paperclip className="h-3.5 w-3.5 shrink-0 text-[#ef1228]" />
+                              <span key={name} className="inline-flex max-w-full items-center gap-2 rounded-xl border border-border/60 bg-secondary/50 px-2.5 py-1.5 text-xs font-semibold text-foreground">
+                                <Paperclip className="h-3.5 w-3.5 shrink-0 text-primary" />
                                 <span className="max-w-56 truncate">{name}</span>
                               </span>
                             ))}
@@ -778,35 +824,42 @@ export function MailboxPage() {
                     ))}
                   </div>
 
-                  <div className="border-t border-[#e7ecf3] bg-white p-4">
-                    <div className="rounded-md border border-[#dfe5ee] bg-white p-3">
-                      <div className="mb-2 flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-6 text-sm font-medium text-[#344054]">
-                          <button type="button" className="border-b-2 border-[#ef1228] px-2 pb-2 text-[#101828]">Reply</button>
+                  <div className="border-t border-border/60 bg-card/95 p-2 sm:p-4">
+                    <div className="group/reply rounded-xl border border-border/60 bg-background/70 p-2 sm:rounded-2xl sm:p-3">
+                      <div className="mb-2 hidden items-center justify-between gap-3 sm:flex">
+                        <div className="flex items-center gap-6 text-sm font-medium text-muted-foreground">
+                          <button type="button" className="border-b-2 border-primary px-2 pb-2 text-foreground">Reply</button>
                         </div>
                         {replyToMessage ? (
-                          <button type="button" className="rounded-md p-1 text-[#667085] hover:bg-[#f3f6fa]" onClick={() => setReplyToMessageId("")} aria-label="Clear reply target">
+                          <button type="button" className="rounded-xl p-1 text-muted-foreground hover:bg-secondary" onClick={() => setReplyToMessageId("")} aria-label="Clear reply target">
                             <X className="h-4 w-4" />
                           </button>
                         ) : null}
                       </div>
                       {replyToMessage ? (
-                        <div className="mb-3 rounded-md border border-[#ffd7dc] bg-[#fff8f9] px-3 py-2 text-xs">
-                          <div className="font-semibold text-[#101828]">
-                            {replyToMessage.direction === "OUTBOUND" ? "You" : replyToMessage.fromName || replyToMessage.fromEmail || "Sender"}
+                        <div className="mb-2 flex items-start gap-2 rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-xs sm:mb-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="font-semibold text-foreground">
+                              {replyToMessage.direction === "OUTBOUND" ? "You" : replyToMessage.fromName || replyToMessage.fromEmail || "Sender"}
+                            </div>
+                            <div className="mt-1 truncate text-muted-foreground">{replyToMessage.textBody || replyToMessage.subject}</div>
                           </div>
-                          <div className="mt-1 truncate text-[#667085]">{replyToMessage.textBody || replyToMessage.subject}</div>
+                          <button type="button" className="rounded-lg p-1 text-muted-foreground hover:bg-secondary" onClick={() => setReplyToMessageId("")} aria-label="Clear reply target">
+                            <X className="h-3.5 w-3.5" />
+                          </button>
                         </div>
                       ) : null}
-                      <MailboxInsertControls
-                        snippets={snippets}
-                        onSnippet={(snippet) => {
-                          setReply((current) => appendContent(current, snippet.text));
-                          toast.success("Snippet inserted");
-                        }}
-                      />
+                      <div className="hidden group-focus-within/reply:block sm:block">
+                        <MailboxInsertControls
+                          snippets={snippets}
+                          onSnippet={(snippet) => {
+                            setReply((current) => appendContent(current, snippet.text));
+                            toast.success("Snippet inserted");
+                          }}
+                        />
+                      </div>
                       <Textarea
-                        className="min-h-24 resize-none border-[#d5dce7] bg-white text-sm text-[#101828] placeholder:text-[#98a2b3] focus:ring-[#ef1228]/20"
+                        className="min-h-11 max-h-28 resize-none rounded-xl border-border/70 bg-card px-3 py-2 text-sm text-foreground transition-[min-height] placeholder:text-muted-foreground focus:min-h-20 focus:ring-primary/20 sm:min-h-24 sm:rounded-2xl"
                         placeholder="Type your reply here..."
                         value={reply}
                         onChange={(event) => setReply(event.target.value)}
@@ -820,7 +873,7 @@ export function MailboxPage() {
                       {attachments.length ? (
                         <AttachmentList files={attachments} onRemove={(index) => setAttachments((current) => current.filter((_, currentIndex) => currentIndex !== index))} />
                       ) : null}
-                      <div className="mt-3 flex items-center justify-between gap-3">
+                      <div className="mt-2 flex items-center justify-between gap-2 sm:mt-3 sm:gap-3">
                         <div className="flex items-center">
                           <input
                             id="mailbox-attachments"
@@ -833,28 +886,28 @@ export function MailboxPage() {
                               event.target.value = "";
                             }}
                           />
-                          <label htmlFor="mailbox-attachments" className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-md border border-[#d5dce7] bg-white px-4 text-sm font-medium text-[#101828] transition hover:bg-[#f8fafc]">
+                          <label htmlFor="mailbox-attachments" className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg border border-border/70 bg-card px-3 text-sm font-medium text-foreground transition hover:bg-secondary sm:h-10 sm:rounded-xl sm:px-4">
                             <Paperclip className="h-4 w-4" />
-                            Attach files
+                            <span className="hidden sm:inline">Attach files</span>
                           </label>
                         </div>
                         <button
                           type="button"
-                          className="inline-flex h-10 items-center gap-2 rounded-md bg-[#ef1228] px-5 text-sm font-semibold text-white transition hover:bg-[#d90f22] disabled:cursor-not-allowed disabled:opacity-50"
+                          className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:h-10 sm:rounded-xl sm:px-5"
                           onClick={queueReply}
                           disabled={!canSendReply}
                         >
                           <Send className="h-4 w-4" />
-                          {replyMutation.isPending ? "Queueing..." : "Send"}
+                          <span>{replyMutation.isPending ? "Queueing..." : "Send"}</span>
                         </button>
                       </div>
                     </div>
                   </div>
                 </>
               ) : (
-                <div className="flex h-full items-center justify-center bg-[#f8fafc] text-center text-[#667085]">
+                <div className="flex h-full items-center justify-center bg-background/50 text-center text-muted-foreground">
                   <div>
-                    <MailOpen className="mx-auto mb-3 h-10 w-10 text-[#98a2b3]" />
+                    <MailOpen className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
                     <div className="text-sm">Select an email to open the conversation.</div>
                   </div>
                 </div>
@@ -874,6 +927,21 @@ export function MailboxPage() {
           onSend={() => composeMutation.mutate()}
         />
       ) : null}
+      <ConfirmDialog
+        open={Boolean(confirmAction)}
+        title={confirmTitle}
+        description={confirmDescription}
+        confirmLabel={confirmAction?.type === "delete" ? "Delete forever" : "Move to trash"}
+        loading={confirmLoading}
+        onOpenChange={(open) => {
+          if (!open && !confirmLoading) setConfirmAction(null);
+        }}
+        onConfirm={() => {
+          if (!confirmAction) return;
+          if (confirmAction.type === "delete") deleteThreadMutation.mutate(confirmAction.threadId, { onSettled: () => setConfirmAction(null) });
+          if (confirmAction.type === "trash") trashThreadMutation.mutate(confirmAction.threadId, { onSettled: () => setConfirmAction(null) });
+        }}
+      />
     </>
   );
 }
@@ -882,11 +950,11 @@ function AttachmentList({ files, onRemove }: { files: File[]; onRemove: (index: 
   return (
     <div className="mt-3 flex flex-wrap gap-2">
       {files.map((file, index) => (
-        <span key={`${file.name}-${index}`} className="inline-flex max-w-full items-center gap-2 rounded-md border border-[#dfe5ee] bg-[#f8fafc] px-2.5 py-1 text-xs text-[#344054]">
-          <Paperclip className="h-3.5 w-3.5 shrink-0 text-[#ef1228]" />
+        <span key={`${file.name}-${index}`} className="inline-flex max-w-full items-center gap-2 rounded-xl border border-border/60 bg-secondary/50 px-2.5 py-1 text-xs text-foreground">
+          <Paperclip className="h-3.5 w-3.5 shrink-0 text-primary" />
           <span className="max-w-48 truncate">{file.name}</span>
-          <span className="text-[#98a2b3]">{formatFileSize(file.size)}</span>
-          <button type="button" className="rounded p-0.5 hover:bg-white" onClick={() => onRemove(index)} aria-label={`Remove ${file.name}`}>
+          <span className="text-muted-foreground">{formatFileSize(file.size)}</span>
+          <button type="button" className="rounded p-0.5 hover:bg-card" onClick={() => onRemove(index)} aria-label={`Remove ${file.name}`}>
             <X className="h-3.5 w-3.5" />
           </button>
         </span>
@@ -905,7 +973,7 @@ function MailboxInsertControls({
   return (
     <div className="mb-3 flex flex-wrap gap-2">
       <select
-        className="h-9 rounded-md border border-[#d5dce7] bg-white px-3 text-xs font-semibold text-[#101828] focus:outline-none focus:ring-2 focus:ring-[#ef1228]/20"
+        className="h-9 rounded-xl border border-border/70 bg-card px-3 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
         defaultValue=""
         onChange={(event) => {
           const snippet = snippets.find((item) => item.id === event.target.value);
@@ -958,16 +1026,16 @@ function ComposeEmailModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 p-4 sm:items-center" onMouseDown={onClose}>
-      <div className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-[#dfe5ee] bg-white shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-[#e7ecf3] px-5 py-4">
-          <div className="font-bold text-[#101828]">New email</div>
-          <button type="button" className="rounded-md p-1.5 text-[#667085] hover:bg-[#f3f6fa]" onClick={onClose} aria-label="Close compose">
+      <div className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border/60 bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-border/60 px-5 py-4">
+          <div className="font-bold text-foreground">New email</div>
+          <button type="button" className="rounded-xl p-1.5 text-muted-foreground hover:bg-secondary" onClick={onClose} aria-label="Close compose">
             <X className="h-4 w-4" />
           </button>
         </div>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-5">
           <Input
-            className="border-[#d5dce7] bg-white text-[#101828]"
+            className="rounded-xl border-border/70 bg-background text-foreground"
             type="email"
             placeholder="To"
             value={compose.to}
@@ -975,7 +1043,7 @@ function ComposeEmailModal({
             onKeyDown={submitWithKeyboard}
           />
           <Input
-            className="border-[#d5dce7] bg-white text-[#101828]"
+            className="rounded-xl border-border/70 bg-background text-foreground"
             placeholder="Subject"
             value={compose.subject}
             onChange={(event) => setCompose((current) => ({ ...current, subject: event.target.value }))}
@@ -989,7 +1057,7 @@ function ComposeEmailModal({
             }}
           />
           <Textarea
-            className="min-h-48 resize-none border-[#d5dce7] bg-[#f8fafc] text-[#101828]"
+            className="min-h-48 resize-none rounded-2xl border-border/70 bg-background text-foreground"
             placeholder="Write your email..."
             value={compose.body}
             onChange={(event) => setCompose((current) => ({ ...current, body: event.target.value }))}
@@ -997,7 +1065,7 @@ function ComposeEmailModal({
           />
           {compose.files.length ? <AttachmentList files={compose.files} onRemove={(index) => setCompose((current) => ({ ...current, files: current.files.filter((_, itemIndex) => itemIndex !== index) }))} /> : null}
         </div>
-        <div className="flex items-center justify-between gap-3 border-t border-[#e7ecf3] p-5">
+        <div className="flex items-center justify-between gap-3 border-t border-border/60 p-5">
           <div>
             <input
               id="compose-attachments"
@@ -1010,14 +1078,14 @@ function ComposeEmailModal({
                 event.target.value = "";
               }}
             />
-            <label htmlFor="compose-attachments" className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-md border border-[#d5dce7] bg-white px-4 text-sm font-semibold text-[#101828] transition hover:bg-[#f8fafc]">
+            <label htmlFor="compose-attachments" className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-border/70 bg-background px-4 text-sm font-semibold text-foreground transition hover:bg-secondary">
               <Paperclip className="h-4 w-4" />
               Attach
             </label>
           </div>
           <button
             type="button"
-            className="inline-flex h-10 items-center gap-2 rounded-md bg-[#ef1228] px-5 text-sm font-semibold text-white transition hover:bg-[#d90f22] disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-10 items-center gap-2 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={onSend}
             disabled={!canSend || sending}
           >
@@ -1053,33 +1121,33 @@ function MailboxPreviewModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onMouseDown={onClose}>
-      <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-[#dfe5ee] bg-white shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
-        <div className="flex items-center justify-between gap-3 border-b border-[#e7ecf3] px-5 py-4">
+      <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-border/60 bg-card shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between gap-3 border-b border-border/60 px-5 py-4">
           <div className="min-w-0">
-            <div className="truncate text-base font-bold text-[#101828]">{title}</div>
+            <div className="truncate text-base font-bold text-foreground">{title}</div>
             {modal.type === "attachment" ? (
-              <div className="text-xs text-[#667085]">
+              <div className="text-xs text-muted-foreground">
                 {modal.attachment.mimeType || "File"}
                 {modal.attachment.size ? ` | ${formatFileSize(modal.attachment.size)}` : ""}
               </div>
             ) : (
-              <div className="text-xs text-[#667085]">{formatFullDate(modal.message.sentAt || modal.message.createdAt)}</div>
+              <div className="text-xs text-muted-foreground">{formatFullDate(modal.message.sentAt || modal.message.createdAt)}</div>
             )}
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {modal.type === "attachment" ? (
-              <a className="inline-flex h-9 items-center rounded-md border border-[#d5dce7] bg-white px-3 text-sm font-semibold text-[#101828] hover:bg-[#f8fafc]" href={attachmentUrl} target="_blank" rel="noreferrer">
+              <a className="inline-flex h-9 items-center rounded-xl border border-border/70 bg-background px-3 text-sm font-semibold text-foreground hover:bg-secondary" href={attachmentUrl} target="_blank" rel="noreferrer">
                 Open
               </a>
             ) : null}
-            <button type="button" className="rounded-md p-1.5 text-[#667085] hover:bg-[#f3f6fa]" onClick={onClose} aria-label="Close preview">
+            <button type="button" className="rounded-xl p-1.5 text-muted-foreground hover:bg-secondary" onClick={onClose} aria-label="Close preview">
               <X className="h-4 w-4" />
             </button>
           </div>
         </div>
-        <div className="min-h-0 flex-1 overflow-auto bg-[#f8fafc] p-5">
+        <div className="min-h-0 flex-1 overflow-auto bg-background/60 p-5">
           {modal.type === "message" ? (
-            <div className="rounded-xl border border-[#dfe5ee] bg-white p-5 text-sm leading-6 text-[#344054]">
+            <div className="rounded-2xl border border-border/60 bg-card p-5 text-sm leading-6 text-muted-foreground">
               <div className="whitespace-pre-wrap break-words">{modal.message.textBody || stripHtml(modal.message.htmlBody) || "-"}</div>
               {modal.message.attachments?.length ? (
                 <div className="mt-5 flex flex-wrap gap-2">
@@ -1088,9 +1156,9 @@ function MailboxPreviewModal({
                       key={attachment.id}
                       type="button"
                       onClick={() => onOpenAttachment({ type: "attachment", messageId: modal.message.id, attachment })}
-                      className="inline-flex max-w-full items-center gap-2 rounded-md border border-[#dfe5ee] bg-[#f8fafc] px-2.5 py-1.5 text-xs font-semibold text-[#344054] hover:border-[#ef1228] hover:bg-[#fff8f9]"
+                      className="inline-flex max-w-full items-center gap-2 rounded-xl border border-border/60 bg-secondary/50 px-2.5 py-1.5 text-xs font-semibold text-foreground hover:border-primary/40 hover:bg-primary/10"
                     >
-                      <Paperclip className="h-3.5 w-3.5 shrink-0 text-[#ef1228]" />
+                      <Paperclip className="h-3.5 w-3.5 shrink-0 text-primary" />
                       <span className="max-w-64 truncate">{attachment.name}</span>
                     </button>
                   ))}
@@ -1108,17 +1176,17 @@ function MailboxPreviewModal({
 
 function AttachmentPreview({ url, mimeType, name }: { url: string; mimeType: string; name: string }) {
   if (mimeType.startsWith("image/")) {
-    return <img src={url} alt={name} className="mx-auto max-h-[72vh] rounded-xl border border-[#dfe5ee] bg-white object-contain" />;
+    return <img src={url} alt={name} className="mx-auto max-h-[72vh] rounded-xl border border-border bg-background object-contain" />;
   }
   if (mimeType === "application/pdf") {
-    return <iframe title={name} src={url} className="h-[72vh] w-full rounded-xl border border-[#dfe5ee] bg-white" />;
+    return <iframe title={name} src={url} className="h-[72vh] w-full rounded-xl border border-border bg-background" />;
   }
   return (
-    <div className="flex h-[50vh] items-center justify-center rounded-xl border border-[#dfe5ee] bg-white text-center text-[#667085]">
+    <div className="flex h-[50vh] items-center justify-center rounded-xl border border-border bg-card text-center text-muted-foreground">
       <div>
-        <Paperclip className="mx-auto mb-3 h-10 w-10 text-[#ef1228]" />
-        <div className="font-semibold text-[#101828]">{name}</div>
-        <a className="mt-3 inline-flex h-10 items-center rounded-md bg-[#ef1228] px-4 text-sm font-semibold text-white hover:bg-[#d90f22]" href={url} target="_blank" rel="noreferrer">
+        <Paperclip className="mx-auto mb-3 h-10 w-10 text-primary" />
+        <div className="font-semibold text-foreground">{name}</div>
+        <a className="mt-3 inline-flex h-10 items-center rounded-xl bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90" href={url} target="_blank" rel="noreferrer">
           Open attachment
         </a>
       </div>

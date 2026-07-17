@@ -16,12 +16,14 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { toast } from "sonner";
+import { ComposeEmailDialog } from "@/components/compose-email-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { crmApi } from "@/lib/api";
-import { currency, displayName, documentTypeLabel } from "@/lib/utils";
+import { currency, displayName, documentTypeLabel, plainTextFromHtml } from "@/lib/utils";
 import type { Client, DocumentRecord, DocumentType } from "@/types/crm";
 
 type EditableClient = {
@@ -38,6 +40,7 @@ export function ClientDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [editOpen, setEditOpen] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
   const { data: client, isLoading } = useQuery({
     queryKey: ["client", id],
     queryFn: () => crmApi.client(id!),
@@ -79,11 +82,22 @@ export function ClientDetailPage() {
   const allDocuments = useMemo(() => collectClientDocuments(client), [client]);
   const addresses = useMemo(() => collectAddresses(allDocuments), [allDocuments]);
   const recentDocuments = [...allDocuments].sort((first, second) => dateValue(second) - dateValue(first));
-  const unpaidAmount = allDocuments
-    .filter((doc) => doc.type === "INVOICE" && doc.paymentStatus !== "PAID")
+  const invoiceDocuments = allDocuments.filter((doc) => doc.type === "INVOICE");
+  const paidAmount = invoiceDocuments
+    .filter(isPaidInvoice)
     .reduce((sum, doc) => sum + Number(doc.total || 0), 0);
+  const unpaidAmount = invoiceDocuments
+    .filter((doc) => !isPaidInvoice(doc))
+    .reduce((sum, doc) => sum + Number(doc.total || 0), 0);
+  const totalPaymentAmount = paidAmount + unpaidAmount;
+  const paymentChartData = totalPaymentAmount
+    ? [
+        { name: "Paid", value: paidAmount, color: "#10b981" },
+        { name: "Outstanding", value: unpaidAmount, color: "#ef233c" }
+      ]
+    : [{ name: "No payments", value: 1, color: "hsl(var(--muted))" }];
 
-  if (isLoading || !client) return <div className="text-[#667085]">Loading client...</div>;
+  if (isLoading || !client) return <div className="text-muted-foreground">Loading client...</div>;
 
   const name = displayName(client);
   const initials = getInitials(name);
@@ -92,71 +106,86 @@ export function ClientDetailPage() {
   const quotationCount = client.totals?.quotations ?? allDocuments.filter((doc) => doc.type === "QUOTATION").length;
 
   return (
-    <div className="mx-auto max-w-[1540px] space-y-5 text-[#101828]">
-      <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-start">
-        <div>
-          <Button
-            type="button"
-            variant="outline"
-            className="mb-4 h-10 border-[#d9e0ea] bg-white px-4 text-[#101828] hover:bg-[#f8fafc]"
-            onClick={() => navigate(-1)}
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </Button>
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-            <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-full bg-[#fff1f3] text-4xl font-semibold text-[#ef1228]">
-              {initials}
-            </div>
-            <div className="min-w-0">
-              <h1 className="truncate text-[34px] font-bold tracking-[-0.03em]">{name}</h1>
-              <div className="mt-3 flex flex-wrap items-center gap-4 text-sm text-[#53627a]">
-                <a className="inline-flex items-center gap-2 hover:text-[#ef1228]" href={client.email ? `mailto:${client.email}` : undefined}>
-                  <Mail className="h-4 w-4" />
-                  {client.email || "No email"}
-                </a>
-                <span className="hidden h-5 w-px bg-[#d9e0ea] sm:block" />
-                <a className="inline-flex items-center gap-2 hover:text-[#ef1228]" href={client.phone ? `tel:${client.phone}` : undefined}>
-                  <Phone className="h-4 w-4" />
-                  {client.phone || "No phone"}
-                </a>
+    <div className="mx-auto max-w-[1540px] space-y-4 text-foreground sm:space-y-5">
+      <div className="rounded-2xl border border-border/50 bg-[linear-gradient(135deg,hsl(var(--card)/0.86),hsl(var(--secondary)/0.38))] p-3.5 shadow-apple backdrop-blur-xl sm:rounded-3xl sm:p-6">
+        <div className="flex flex-col justify-between gap-5 xl:flex-row xl:items-start">
+          <div>
+            <Button
+              type="button"
+              variant="outline"
+              className="mb-3 h-9 rounded-xl border-border/70 bg-background/80 px-3 text-foreground sm:mb-4 sm:h-10 sm:px-4"
+              onClick={() => navigate(-1)}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back
+            </Button>
+            <div className="flex items-center gap-3 sm:gap-4">
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-border/60 bg-card text-xl font-semibold text-primary sm:h-28 sm:w-28 sm:rounded-3xl sm:text-4xl">
+                {initials}
+              </div>
+              <div className="min-w-0">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  {client.company ? <span className="rounded-full border border-border/60 bg-background/70 px-3 py-1 text-xs font-semibold text-muted-foreground">{client.company}</span> : null}
+                  <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-600">Active client</span>
+                </div>
+                <h1 className="truncate text-2xl font-semibold tracking-tight sm:text-[34px]">{name}</h1>
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground sm:mt-3 sm:gap-3 sm:text-sm">
+                  <button
+                    type="button"
+                    className="inline-flex min-w-0 max-w-full items-center gap-2 rounded-full border border-border/60 bg-background/70 px-3 py-1.5 text-left transition hover:border-primary/30 hover:bg-primary/5 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60"
+                    onClick={() => setComposeOpen(true)}
+                    disabled={!client.email}
+                  >
+                    <Mail className="h-4 w-4 shrink-0" />
+                    <span className="truncate">{client.email || "No email"}</span>
+                  </button>
+                  <a className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/70 px-3 py-1.5 hover:text-primary" href={client.phone ? `tel:${client.phone}` : undefined}>
+                    <Phone className="h-4 w-4" />
+                    {client.phone || "No phone"}
+                  </a>
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2 sm:mt-4 sm:max-w-md">
+                  <HeroMiniStat label="Bookings" value={bookingCount} />
+                  <HeroMiniStat label="Invoices" value={invoiceCount} />
+                  <HeroMiniStat label="Quotes" value={quotationCount} />
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <div className="flex flex-wrap gap-2 xl:justify-end">
-          <ActionButton to={`/documents/new/BOOKING?clientId=${client.id}`} icon={CalendarDays} label="New Booking" primary />
-          <ActionButton to={`/documents/new/INVOICE?clientId=${client.id}`} icon={Receipt} label="New Invoice" />
-          <ActionButton to={`/documents/new/QUOTATION?clientId=${client.id}`} icon={FileText} label="New Quotation" />
-          <Button
-            type="button"
-            variant="outline"
-            className="h-11 border-[#ef1228] bg-white px-5 font-semibold text-[#ef1228] hover:bg-[#fff1f3]"
-            onClick={() => setEditOpen(true)}
-          >
-            <Edit className="h-4 w-4" />
-            Edit Client
-          </Button>
+          <div className="scrollbar-hide flex max-w-full min-w-0 gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-2 sm:overflow-visible sm:pb-0 xl:max-w-[420px] xl:justify-end">
+            <ActionButton to={`/documents/new/BOOKING?clientId=${client.id}`} icon={CalendarDays} label="New Booking" primary />
+            <ActionButton to={`/documents/new/INVOICE?clientId=${client.id}`} icon={Receipt} label="New Invoice" />
+            <ActionButton to={`/documents/new/QUOTATION?clientId=${client.id}`} icon={FileText} label="New Quotation" />
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 w-auto shrink-0 rounded-xl border-primary/20 bg-primary/5 px-5 font-semibold text-primary hover:bg-primary/10 sm:w-full"
+              onClick={() => setEditOpen(true)}
+            >
+              <Edit className="h-4 w-4" />
+              Edit Client
+            </Button>
+          </div>
         </div>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_520px]">
-        <div className="space-y-5">
-          <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+      <div className="relative grid w-full min-w-0 grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,1fr)_520px]">
+        <div className="min-w-0 space-y-5">
+          <section className="rounded-2xl border border-border/50 bg-card/70 p-4 shadow-apple backdrop-blur-xl sm:p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
-              <h2 className="text-lg font-bold">Client Profile</h2>
+              <h2 className="text-lg font-semibold">Client Profile</h2>
               <Button
                 type="button"
                 variant="outline"
-                className="h-9 border-[#d9e0ea] bg-white text-[#101828] hover:bg-[#f8fafc]"
+                className="h-9 rounded-xl border-border/70 bg-background text-foreground"
                 onClick={() => setEditOpen(true)}
               >
                 <Edit className="h-4 w-4" />
                 Edit
               </Button>
             </div>
-            <div className="divide-y divide-[#edf1f6]">
+            <div className="divide-y divide-border/60">
               <ProfileRow label="First name" value={client.firstName || "-"} />
               <ProfileRow label="Last name" value={client.lastName || "-"} />
               <ProfileRow label="Email" value={client.email || "-"} />
@@ -166,21 +195,56 @@ export function ClientDetailPage() {
             </div>
           </section>
 
-          <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
-            <h2 className="mb-4 text-lg font-bold">Address History</h2>
+          <section className="rounded-2xl border border-border/50 bg-card/70 p-4 shadow-apple backdrop-blur-xl sm:p-5">
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold">Payment Overview</h2>
+              <p className="mt-1 text-xs text-muted-foreground">Paid and outstanding invoice value for this client.</p>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <PaymentMetric label="Total" value={totalPaymentAmount} tone="neutral" />
+              <PaymentMetric label="Paid" value={paidAmount} tone="paid" />
+              <PaymentMetric label="Unpaid" value={unpaidAmount} tone="unpaid" />
+            </div>
+            <div className="mt-4 grid min-w-0 items-center gap-3 sm:grid-cols-[190px_minmax(0,1fr)]">
+              <div className="h-[180px] min-w-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={paymentChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={48} outerRadius={72} paddingAngle={paidAmount && unpaidAmount ? 4 : 0} stroke="none">
+                      {paymentChartData.map((item) => <Cell key={item.name} fill={item.color} />)}
+                    </Pie>
+                    <Tooltip
+                      formatter={(value) => currency(Number(value || 0))}
+                      contentStyle={{ borderRadius: 12, border: "1px solid hsl(var(--border))", backgroundColor: "hsl(var(--card))", color: "hsl(var(--foreground))", boxShadow: "0 12px 30px rgba(15, 23, 42, 0.18)", opacity: 1 }}
+                      itemStyle={{ color: "hsl(var(--foreground))" }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="space-y-3">
+                <PaymentLegend color="bg-emerald-500" label="Collected" value={paidAmount} />
+                <PaymentLegend color="bg-primary" label="Outstanding" value={unpaidAmount} />
+                <div className="border-t border-border/60 pt-3 text-xs text-muted-foreground">
+                  {totalPaymentAmount ? `${Math.round((paidAmount / totalPaymentAmount) * 100)}% of invoiced value collected` : "No invoice value recorded yet"}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-border/50 bg-card/70 p-4 shadow-apple backdrop-blur-xl sm:p-5">
+            <h2 className="mb-4 text-lg font-semibold">Address History</h2>
             {addresses.length ? (
               <div className="space-y-3">
                 {addresses.map((address, index) => (
-                  <div key={`${address.line}-${index}`} className="grid gap-3 rounded-lg border border-[#dfe5ee] bg-[#fcfdff] p-4 md:grid-cols-[1fr_180px] md:items-center">
+                  <div key={`${address.line}-${index}`} className="grid gap-3 rounded-2xl border border-border/60 bg-background/70 p-4 md:grid-cols-[1fr_180px] md:items-center">
                     <div className="min-w-0">
-                      {index === 0 ? <span className="mb-2 inline-flex rounded-md border border-[#ffd0d6] bg-[#fff1f3] px-2 py-1 text-xs font-bold text-[#ef1228]">Primary Address</span> : null}
+                      {index === 0 ? <span className="mb-2 inline-flex rounded-full border border-primary/20 bg-primary/10 px-2.5 py-1 text-xs font-bold text-primary">Primary Address</span> : null}
                       <div className="flex min-w-0 items-start gap-2 text-sm font-medium">
-                        <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#53627a]" />
+                        <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
                         <span className="break-words">{address.line}</span>
                       </div>
                     </div>
-                    <div className="border-t border-[#edf1f6] pt-3 md:border-l md:border-t-0 md:pl-5 md:pt-0">
-                      <div className="text-xs text-[#667085]">Postcode</div>
+                    <div className="border-t border-border/60 pt-3 md:border-l md:border-t-0 md:pl-5 md:pt-0">
+                      <div className="text-xs text-muted-foreground">Postcode</div>
                       <div className="mt-1 font-medium">{address.postcode || "-"}</div>
                     </div>
                   </div>
@@ -191,64 +255,29 @@ export function ClientDetailPage() {
             )}
           </section>
 
-          <section className="overflow-hidden rounded-lg border border-[#dfe5ee] bg-white shadow-sm">
-            <div className="flex items-center justify-between gap-3 border-b border-[#edf1f6] px-5 py-4">
-              <h2 className="text-lg font-bold">Connected Records</h2>
-              <Button asChild variant="outline" className="h-9 border-[#d9e0ea] bg-white text-[#101828] hover:bg-[#f8fafc]">
-                <Link to="/documents">View All</Link>
+          <section className="overflow-hidden rounded-2xl border border-border/50 bg-card/70 shadow-apple backdrop-blur-xl">
+            <div className="flex items-center justify-between gap-3 border-b border-border/60 px-5 py-4">
+              <h2 className="text-lg font-semibold">Connected Records</h2>
+              <Button asChild variant="outline" className="h-9 rounded-xl border-border/70 bg-background text-foreground">
+                <Link to={`/documents?clientId=${client.id}&title=Client%20Records`}>View All</Link>
               </Button>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[840px] table-fixed text-left text-sm">
-                <thead className="bg-[#f8fafc] text-xs font-bold uppercase tracking-wide text-[#667085]">
-                  <tr>
-                    <th className="w-[15%] px-4 py-3">Type</th>
-                    <th className="w-[23%] px-4 py-3">Document No</th>
-                    <th className="w-[18%] px-4 py-3">Date</th>
-                    <th className="w-[16%] px-4 py-3">Status</th>
-                    <th className="w-[16%] px-4 py-3">Amount</th>
-                    <th className="w-[12%] px-4 py-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#edf1f6]">
-                  {recentDocuments.length ? (
-                    recentDocuments.map((doc) => (
-                      <tr key={doc.id} className="transition hover:bg-[#fbfcfe]">
-                        <td className="px-4 py-4">
-                          <DocumentTypePill type={doc.type} />
-                        </td>
-                        <td className="px-4 py-4">
-                          <Link className="font-semibold text-[#2563eb] hover:underline" to={`/documents/${doc.id}`}>
-                            {doc.documentNo}
-                          </Link>
-                        </td>
-                        <td className="px-4 py-4 text-[#53627a]">{formatDate(doc.bookingDate || doc.issueDate || doc.createdAt)}</td>
-                        <td className="px-4 py-4">
-                          <StatusBadge doc={doc} />
-                        </td>
-                        <td className="px-4 py-4 font-medium">{currency(doc.total)}</td>
-                        <td className="px-4 py-4 text-right">
-                          <Link className="inline-flex items-center gap-1 font-semibold text-[#ef1228]" to={`/documents/${doc.id}`}>
-                            View <ArrowRight className="h-4 w-4" />
-                          </Link>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td className="px-4 py-10 text-center text-[#667085]" colSpan={6}>No connected records yet.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+            <div className="space-y-3 p-4">
+              {recentDocuments.length ? (
+                recentDocuments.map((doc) => (
+                  <ConnectedRecordCard key={doc.id} doc={doc} />
+                ))
+              ) : (
+                <EmptyState text="No connected records yet." />
+              )}
             </div>
           </section>
         </div>
 
         <aside className="space-y-5">
-          <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
-            <h2 className="mb-4 text-lg font-bold">Activity Summary</h2>
-            <div className="grid gap-4 sm:grid-cols-2">
+          <section className="rounded-2xl border border-border/50 bg-card/70 p-5 shadow-apple backdrop-blur-xl">
+            <h2 className="mb-4 text-lg font-semibold">Activity Summary</h2>
+              <div className="grid grid-cols-2 gap-3 sm:gap-4">
               <SummaryCard icon={CalendarDays} label="Bookings" value={bookingCount} tone="blue" link={`/documents?type=BOOKING&clientId=${client.id}&title=Client%20Bookings`} />
               <SummaryCard icon={Receipt} label="Invoices" value={invoiceCount} tone="green" link={`/documents?type=INVOICE&clientId=${client.id}&title=Client%20Invoices`} />
               <SummaryCard icon={FileText} label="Quotations" value={quotationCount} tone="red" link={`/documents?type=QUOTATION&clientId=${client.id}&title=Client%20Quotations`} />
@@ -256,8 +285,8 @@ export function ClientDetailPage() {
             </div>
           </section>
 
-          <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
-            <h2 className="mb-4 text-lg font-bold">Recent Timeline</h2>
+          <section className="rounded-2xl border border-border/50 bg-card/70 p-4 shadow-apple backdrop-blur-xl sm:p-5">
+            <h2 className="mb-4 text-lg font-semibold">Recent Timeline</h2>
             {recentDocuments.length ? (
               <div className="space-y-5">
                 {recentDocuments.slice(0, 5).map((doc) => (
@@ -269,21 +298,13 @@ export function ClientDetailPage() {
             )}
           </section>
 
-          <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
-            <h2 className="mb-4 text-lg font-bold">Quick Actions</h2>
-            <div className="grid gap-3 sm:grid-cols-2">
+          <section className="rounded-2xl border border-border/50 bg-card/70 p-5 shadow-apple backdrop-blur-xl">
+            <h2 className="mb-4 text-lg font-semibold">Quick Actions</h2>
+            <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
               <QuickAction to={`/documents/new/BOOKING?clientId=${client.id}`} icon={CalendarDays} label="New Booking" />
               <QuickAction to={`/documents/new/INVOICE?clientId=${client.id}`} icon={Receipt} label="New Invoice" />
               <QuickAction to={`/documents/new/QUOTATION?clientId=${client.id}`} icon={FileText} label="New Quotation" />
-              <QuickAction
-                to={
-                  client.email
-                    ? `/mailbox?compose=1&to=${encodeURIComponent(client.email)}&subject=${encodeURIComponent(`Message for ${name}`)}`
-                    : "/mailbox"
-                }
-                icon={Send}
-                label="Send Email"
-              />
+              <QuickActionButton icon={Send} label="Send Email" onClick={() => setComposeOpen(true)} disabled={!client.email} />
             </div>
           </section>
         </aside>
@@ -298,6 +319,13 @@ export function ClientDetailPage() {
           saving={updateMutation.isPending}
         />
       ) : null}
+      <ComposeEmailDialog
+        open={composeOpen}
+        initialTo={client.email}
+        initialSubject={`Message for ${name}`}
+        recipientName={name}
+        onOpenChange={setComposeOpen}
+      />
     </div>
   );
 }
@@ -307,7 +335,7 @@ function ActionButton({ to, icon: Icon, label, primary }: { to: string; icon: ty
     <Button
       asChild
       variant={primary ? "default" : "outline"}
-      className={primary ? "h-11 bg-[#ef1228] px-5 font-semibold text-white hover:bg-[#d90f22]" : "h-11 border-[#ef1228] bg-white px-5 font-semibold text-[#ef1228] hover:bg-[#fff1f3]"}
+      className={primary ? "h-11 rounded-xl px-5 font-semibold shadow-apple" : "h-11 rounded-xl border-primary/20 bg-primary/5 px-5 font-semibold text-primary hover:bg-primary/10"}
     >
       <Link to={to}>
         <Icon className="h-4 w-4" />
@@ -317,32 +345,41 @@ function ActionButton({ to, icon: Icon, label, primary }: { to: string; icon: ty
   );
 }
 
+function HeroMiniStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-2xl border border-border/60 bg-background/70 px-3 py-2 shadow-sm">
+      <div className="text-lg font-semibold leading-none text-foreground">{value}</div>
+      <div className="mt-1 truncate text-[11px] font-medium text-muted-foreground">{label}</div>
+    </div>
+  );
+}
+
 function ProfileRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid gap-2 py-3 text-sm sm:grid-cols-[220px_1fr]">
-      <div className="font-medium text-[#53627a]">{label}</div>
-      <div className="break-words text-[#101828]">{value}</div>
+    <div className="grid min-w-0 gap-2 py-3 text-sm sm:grid-cols-[minmax(110px,220px)_minmax(0,1fr)]">
+      <div className="font-medium text-muted-foreground">{label}</div>
+      <div className="min-w-0 break-words text-foreground [overflow-wrap:anywhere]">{value}</div>
     </div>
   );
 }
 
 function SummaryCard({ icon: Icon, label, value, tone, link }: { icon: typeof CalendarDays; label: string; value: string | number; tone: "blue" | "green" | "red" | "amber"; link?: string }) {
   const toneClass = {
-    blue: "bg-[#eef7ff] text-[#2563eb] border-[#c8dcff]",
-    green: "bg-[#ecfdf3] text-[#16a34a] border-[#bbf7d0]",
-    red: "bg-[#fff1f3] text-[#ef1228] border-[#ffd0d6]",
-    amber: "bg-[#fff7e6] text-[#d97706] border-[#fed7aa]"
+    blue: "bg-blue-500/10 text-blue-600 border-blue-500/20",
+    green: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
+    red: "bg-primary/10 text-primary border-primary/20",
+    amber: "bg-amber-500/10 text-amber-600 border-amber-500/20"
   }[tone];
   const content = (
-    <div className="rounded-lg border border-[#dfe5ee] bg-white p-4 transition hover:border-[#ef1228]">
+    <div className="rounded-2xl border border-border/60 bg-background/70 p-4 transition hover:border-primary/30 hover:bg-primary/5">
       <div className="flex items-center gap-4">
-        <div className={`flex h-14 w-14 items-center justify-center rounded-lg border ${toneClass}`}>
+        <div className={`flex h-14 w-14 items-center justify-center rounded-2xl border ${toneClass}`}>
           <Icon className="h-6 w-6" />
         </div>
         <div>
-          <div className="text-sm text-[#53627a]">{label}</div>
-          <div className={typeof value === "string" && value.includes("£") ? "mt-1 text-lg font-bold text-[#ef1228]" : "mt-1 text-2xl font-bold"}>{value}</div>
-          {link ? <div className="mt-1 text-xs font-semibold text-[#2563eb]">View all</div> : null}
+          <div className="text-sm text-muted-foreground">{label}</div>
+          <div className={typeof value === "string" && value.includes("£") ? "mt-1 text-lg font-semibold text-primary" : "mt-1 text-2xl font-semibold"}>{value}</div>
+          {link ? <div className="mt-1 text-xs font-semibold text-blue-600">View all</div> : null}
         </div>
       </div>
     </div>
@@ -350,16 +387,82 @@ function SummaryCard({ icon: Icon, label, value, tone, link }: { icon: typeof Ca
   return link ? <Link to={link}>{content}</Link> : content;
 }
 
+function PaymentMetric({ label, value, tone }: { label: string; value: number; tone: "neutral" | "paid" | "unpaid" }) {
+  const toneClass = tone === "paid" ? "text-emerald-600 dark:text-emerald-400" : tone === "unpaid" ? "text-primary" : "text-foreground";
+  return (
+    <div className="min-w-0 rounded-xl border border-border/60 bg-background/70 px-2 py-3 text-center sm:px-3">
+      <div className="truncate text-[10px] font-bold uppercase text-muted-foreground">{label}</div>
+      <div className={`mt-1 break-words text-xs font-bold sm:text-sm ${toneClass}`}>{currency(value)}</div>
+    </div>
+  );
+}
+
+function PaymentLegend({ color, label, value }: { color: string; label: string; value: number }) {
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-3 text-sm">
+      <span className="inline-flex min-w-0 items-center gap-2 text-muted-foreground"><span className={`h-2.5 w-2.5 shrink-0 rounded-full ${color}`} /><span className="truncate">{label}</span></span>
+      <span className="shrink-0 font-semibold text-foreground">{currency(value)}</span>
+    </div>
+  );
+}
+
 function DocumentTypePill({ type }: { type: DocumentType }) {
-  const tone = type === "BOOKING" ? "bg-[#eef7ff] text-[#2563eb]" : type === "INVOICE" ? "bg-[#ecfdf3] text-[#16a34a]" : "bg-[#fff1f3] text-[#ef1228]";
-  return <span className={`inline-flex rounded-md px-2.5 py-1 text-xs font-bold ${tone}`}>{documentTypeLabel(type)}</span>;
+  const tone = type === "BOOKING" ? "bg-blue-500/10 text-blue-600" : type === "INVOICE" ? "bg-emerald-500/10 text-emerald-600" : "bg-primary/10 text-primary";
+  return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${tone}`}>{documentTypeLabel(type)}</span>;
+}
+
+function ConnectedRecordCard({ doc }: { doc: DocumentRecord }) {
+  const date = formatDate(doc.bookingDate || doc.issueDate || doc.createdAt);
+  return (
+    <Link
+      to={`/documents/${doc.id}`}
+      className="group block min-w-0 rounded-2xl border border-border/60 bg-background/70 p-4 shadow-sm transition hover:border-primary/30 hover:bg-primary/[0.045] hover:shadow-md"
+    >
+      <div className="flex min-w-0 items-start gap-3">
+        <div className={recordIconClass(doc.type)}>
+          {doc.type === "BOOKING" ? <CalendarDays className="h-5 w-5" /> : doc.type === "INVOICE" ? <Receipt className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <span className="min-w-0 break-words font-semibold text-foreground [overflow-wrap:anywhere]">{doc.documentNo}</span>
+            <DocumentTypePill type={doc.type} />
+          </div>
+          <div className="mt-1 line-clamp-2 break-words text-xs leading-5 text-muted-foreground [overflow-wrap:anywhere]">{plainTextFromHtml(doc.jobTitle || doc.description) || "Connected work record"}</div>
+        </div>
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition group-hover:bg-primary/10 group-hover:text-primary">
+          <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+        </span>
+      </div>
+
+      <div className="mt-4 grid min-w-0 grid-cols-2 gap-2 border-t border-border/50 pt-3 sm:grid-cols-3">
+        <div className="min-w-0 rounded-xl bg-secondary/45 px-3 py-2">
+          <div className="text-[10px] font-bold uppercase text-muted-foreground">Date</div>
+          <div className="mt-1 break-words text-sm font-medium text-foreground">{date}</div>
+        </div>
+        <div className="min-w-0 rounded-xl bg-secondary/45 px-3 py-2">
+          <div className="text-[10px] font-bold uppercase text-muted-foreground">Status</div>
+          <div className="mt-1"><StatusBadge doc={doc} /></div>
+        </div>
+        <div className="col-span-2 min-w-0 rounded-xl bg-secondary/45 px-3 py-2 sm:col-span-1">
+          <div className="text-[10px] font-bold uppercase text-muted-foreground">Amount</div>
+          <div className="mt-1 break-words text-sm font-semibold text-foreground">{currency(doc.total)}</div>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+function recordIconClass(type: DocumentType) {
+  if (type === "BOOKING") return "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-blue-500/10 text-blue-600 ring-1 ring-blue-500/15";
+  if (type === "INVOICE") return "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-600 ring-1 ring-emerald-500/15";
+  return "flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-600 ring-1 ring-amber-500/15";
 }
 
 function StatusBadge({ doc }: { doc: DocumentRecord }) {
   const confirmed = doc.type === "BOOKING" && doc.bookingConfirmed;
   const paid = doc.type === "INVOICE" && doc.paymentStatus === "PAID";
   const label = confirmed ? "Confirmed" : paid ? "Paid" : doc.status === "DRAFT" ? "Draft" : doc.status;
-  const tone = confirmed || paid ? "bg-[#dcfce7] text-[#15803d]" : doc.status === "DRAFT" ? "bg-[#f3f6fa] text-[#344054]" : "bg-[#eef2ff] text-[#4338ca]";
+  const tone = confirmed || paid ? "bg-emerald-500/10 text-emerald-600" : doc.status === "DRAFT" ? "bg-secondary text-secondary-foreground" : "bg-indigo-500/10 text-indigo-600";
   return <Badge className={`${tone} hover:${tone}`}>{label}</Badge>;
 }
 
@@ -370,37 +473,51 @@ function TimelineItem({ doc }: { doc: DocumentRecord }) {
   return (
     <div className="flex gap-4">
       <div className="flex flex-col items-center">
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#eef7ff] text-[#2563eb]">
+        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-500/10 text-blue-600">
           <Icon className="h-5 w-5" />
         </div>
-        <div className="mt-2 h-8 w-px bg-[#dfe5ee]" />
+        <div className="mt-2 h-8 w-px bg-border" />
       </div>
       <div className="min-w-0 pb-3">
-        <div className="text-sm font-bold">{action}</div>
-        <p className="mt-1 text-sm text-[#53627a]">
-          <Link className="font-semibold text-[#2563eb] hover:underline" to={`/documents/${doc.id}`}>{doc.documentNo}</Link> has been saved.
+        <div className="text-sm font-semibold">{action}</div>
+        <p className="mt-1 text-sm text-muted-foreground">
+          <Link className="font-semibold text-blue-600 hover:underline" to={`/documents/${doc.id}`}>{doc.documentNo}</Link> has been saved.
         </p>
-        <div className="mt-1 text-xs text-[#667085]">{formatDateTime(doc.createdAt)}</div>
+        <div className="mt-1 text-xs text-muted-foreground">{formatDateTime(doc.createdAt)}</div>
       </div>
     </div>
   );
 }
 
 function QuickAction({ to, icon: Icon, label, external }: { to: string; icon: typeof CalendarDays; label: string; external?: boolean }) {
-  const className = "flex min-h-20 flex-col items-center justify-center gap-2 rounded-lg border border-[#dfe5ee] bg-white p-3 text-center text-sm font-semibold text-[#101828] transition hover:border-[#ef1228] hover:bg-[#fff8f9]";
+  const className = "flex min-h-20 flex-col items-center justify-center gap-2 rounded-2xl border border-border/60 bg-background/70 p-3 text-center text-sm font-semibold text-foreground transition hover:border-primary/30 hover:bg-primary/5";
   if (external) {
     return (
       <a className={className} href={to}>
-        <Icon className="h-5 w-5 text-[#ef1228]" />
+        <Icon className="h-5 w-5 text-primary" />
         {label}
       </a>
     );
   }
   return (
     <Link className={className} to={to}>
-      <Icon className="h-5 w-5 text-[#ef1228]" />
+      <Icon className="h-5 w-5 text-primary" />
       {label}
     </Link>
+  );
+}
+
+function QuickActionButton({ icon: Icon, label, onClick, disabled }: { icon: typeof CalendarDays; label: string; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      className="flex min-h-20 flex-col items-center justify-center gap-2 rounded-2xl border border-border/60 bg-background/70 p-3 text-center text-sm font-semibold text-foreground transition hover:border-primary/30 hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50"
+      onClick={onClick}
+      disabled={disabled}
+    >
+      <Icon className="h-5 w-5 text-primary" />
+      {label}
+    </button>
   );
 }
 
@@ -418,33 +535,33 @@ function EditClientModal({
   saving: boolean;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#071527]/45 p-4">
-      <div className="w-full max-w-2xl rounded-lg bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-[#edf1f6] px-5 py-4">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 p-4 sm:items-center">
+      <div className="max-h-[92vh] w-full max-w-2xl overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+        <div className="flex items-center justify-between border-b border-border/60 px-5 py-4">
           <div>
-            <h2 className="text-lg font-bold">Edit Client</h2>
-            <p className="text-xs text-[#667085]">Update contact details used across records.</p>
+            <h2 className="text-lg font-semibold">Edit Client</h2>
+            <p className="text-xs text-muted-foreground">Update contact details used across records.</p>
           </div>
-          <button type="button" className="rounded-md p-2 text-[#53627a] hover:bg-[#f8fafc]" onClick={onClose}>
+          <button type="button" className="rounded-xl p-2 text-muted-foreground hover:bg-secondary" onClick={onClose}>
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="grid gap-4 p-5 sm:grid-cols-2">
+        <div className="grid max-h-[calc(92vh-9rem)] gap-4 overflow-y-auto p-5 sm:grid-cols-2">
           <FormField label="First name" value={value.firstName} onChange={(firstName) => onChange({ ...value, firstName })} />
           <FormField label="Last name" value={value.lastName} onChange={(lastName) => onChange({ ...value, lastName })} />
           <FormField label="Email" value={value.email} onChange={(email) => onChange({ ...value, email })} />
           <FormField label="Phone" value={value.phone} onChange={(phone) => onChange({ ...value, phone })} />
           <FormField label="Company" value={value.company} onChange={(company) => onChange({ ...value, company })} />
           <label className="space-y-2 sm:col-span-2">
-            <span className="text-xs font-medium text-[#53627a]">Notes</span>
-            <Textarea className="min-h-24 border-[#cfd7e3] bg-white text-[#101828]" value={value.notes} onChange={(event) => onChange({ ...value, notes: event.target.value })} />
+            <span className="text-xs font-medium text-muted-foreground">Notes</span>
+            <Textarea className="min-h-24 border-border bg-background text-foreground" value={value.notes} onChange={(event) => onChange({ ...value, notes: event.target.value })} />
           </label>
         </div>
-        <div className="flex justify-end gap-2 border-t border-[#edf1f6] px-5 py-4">
-          <Button type="button" variant="outline" className="border-[#d9e0ea] bg-white text-[#101828] hover:bg-[#f8fafc]" onClick={onClose}>
+        <div className="flex justify-end gap-2 border-t border-border/60 px-5 py-4">
+          <Button type="button" variant="outline" className="rounded-xl border-border/70 bg-background text-foreground" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="button" className="bg-[#ef1228] text-white hover:bg-[#d90f22]" onClick={onSave} loading={saving}>
+          <Button type="button" className="rounded-xl" onClick={onSave} loading={saving}>
             Save Changes
           </Button>
         </div>
@@ -456,14 +573,14 @@ function EditClientModal({
 function FormField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return (
     <label className="space-y-2">
-      <span className="text-xs font-medium text-[#53627a]">{label}</span>
-      <Input className="border-[#cfd7e3] bg-white text-[#101828] placeholder:text-[#98a2b3]" value={value} onChange={(event) => onChange(event.target.value)} />
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <Input className="border-border bg-background text-foreground placeholder:text-muted-foreground" value={value} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
 }
 
 function EmptyState({ text }: { text: string }) {
-  return <div className="rounded-lg border border-dashed border-[#d5dce7] bg-[#fcfdff] p-8 text-center text-sm font-semibold text-[#667085]">{text}</div>;
+  return <div className="rounded-2xl border border-dashed border-border bg-background/70 p-8 text-center text-sm font-semibold text-muted-foreground">{text}</div>;
 }
 
 function collectClientDocuments(client?: Client) {
@@ -498,6 +615,10 @@ function collectAddresses(documents: DocumentRecord[]) {
 
 function dateValue(doc: DocumentRecord) {
   return new Date(doc.bookingDate || doc.issueDate || doc.createdAt || 0).getTime();
+}
+
+function isPaidInvoice(doc: DocumentRecord) {
+  return doc.paymentStatus === "PAID" || doc.status === "PAID";
 }
 
 function getInitials(value: string) {

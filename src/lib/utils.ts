@@ -18,6 +18,15 @@ export function displayName(client?: { firstName?: string; lastName?: string; co
   return client.company || [client.firstName, client.lastName].filter(Boolean).join(" ") || "No client";
 }
 
+export function plainTextFromHtml(value?: string | null) {
+  const source = String(value ?? "").trim();
+  if (!source) return "";
+  if (typeof DOMParser === "undefined") return source.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  const parsed = new DOMParser().parseFromString(source, "text/html");
+  parsed.querySelectorAll("script, style, iframe, object, embed").forEach((node) => node.remove());
+  return (parsed.body.textContent || "").replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+}
+
 export function documentTypeLabel(type?: string) {
   if (type === "BOOKING") return "Booking";
   if (type === "INVOICE") return "Invoice";

@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   CalendarDays,
   CheckCircle2,
+  ChevronRight,
   Clock3,
   CopyPlus,
   Edit,
@@ -14,15 +15,21 @@ import {
   Image as ImageIcon,
   Link2,
   Mail,
+  MapPin,
   Paperclip,
+  Phone,
   Receipt,
   Send,
   Trash2,
+  UserRound,
   Wallet,
   type LucideIcon
 } from "lucide-react";
 import { crmApi } from "@/lib/api";
-import { currency, displayName, documentDisplayTitle, documentTypeLabel, hasDocumentRevisionActivity } from "@/lib/utils";
+import { currency, displayName, documentDisplayTitle, documentTypeLabel, hasDocumentRevisionActivity, plainTextFromHtml } from "@/lib/utils";
+import { ComposeEmailDialog } from "@/components/compose-email-dialog";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { PdfPreviewDialog } from "@/components/pdf-preview-dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/input";
 import type { DocumentRecord, MailboxThread } from "@/types/crm";
@@ -53,6 +60,9 @@ export function DocumentDetailPage() {
   const [bookingReply, setBookingReply] = useState("");
   const [bookingReplyFiles, setBookingReplyFiles] = useState<File[]>([]);
   const [queuedBookingReplies, setQueuedBookingReplies] = useState<QueuedReply[]>([]);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [pdfOpen, setPdfOpen] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
   const { data: doc, isLoading } = useQuery({
     queryKey: ["document", id],
     queryFn: () => crmApi.document(id!),
@@ -101,6 +111,7 @@ export function DocumentDetailPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["documents"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      setDeleteOpen(false);
       toast.success("Deleted successfully");
       navigate("/documents");
     },
@@ -141,74 +152,118 @@ export function DocumentDetailPage() {
     if (doc.type === "BOOKING" && item.type === "BOOKING") return false;
     return true;
   });
-  const openPdf = async () => {
-    window.open(crmApi.pdfDownloadUrl(doc.id), "_blank");
-  };
+  const openPdf = () => setPdfOpen(true);
+  const pdfDialog = (
+    <PdfPreviewDialog
+      open={pdfOpen}
+      documentId={doc.id}
+      documentNo={doc.documentNo}
+      title={`${documentTypeLabel(doc.type)} PDF`}
+      onOpenChange={setPdfOpen}
+    />
+  );
+  const composeDialog = (
+    <ComposeEmailDialog
+      open={composeOpen}
+      initialTo={doc.client?.email}
+      initialSubject={`Regarding ${documentTypeLabel(doc.type)} ${doc.documentNo}`}
+      recipientName={displayName(doc.client)}
+      onOpenChange={setComposeOpen}
+    />
+  );
 
   if (doc.type === "BOOKING") {
     return (
-      <ModernBookingDetail
+      <>
+        <ModernBookingDetail
+          doc={doc}
+          connectedRecords={connectedRecords}
+          hasRevisionDetails={hasRevisionDetails}
+          onBack={() => navigate(-1)}
+          onOpenPdf={openPdf}
+          onComposeEmail={() => setComposeOpen(true)}
+          onSendEmail={() => sendMutation.mutate()}
+          sendingEmail={sendMutation.isPending}
+          onClone={() => cloneMutation.mutate()}
+          cloning={cloneMutation.isPending}
+          onDelete={() => setDeleteOpen(true)}
+          deleting={deleteMutation.isPending}
+          mailboxThread={bookingThread ?? null}
+          reply={bookingReply}
+          replyFiles={bookingReplyFiles}
+          queuedReplies={queuedBookingReplies}
+          setReply={setBookingReply}
+          setReplyFiles={setBookingReplyFiles}
+          onSendReply={() => {
+            if (!bookingThread?.id || (!bookingReply.trim() && !bookingReplyFiles.length)) return;
+            const queueId = `booking-reply-${Date.now()}`;
+            const body = bookingReply;
+            const files = bookingReplyFiles;
+            setQueuedBookingReplies((current) => [
+              ...current,
+              {
+                id: queueId,
+                body: body.trim() || `${files.length} attachment(s)`,
+                fileNames: files.map((file) => file.name),
+                createdAt: new Date().toISOString(),
+                status: "sending"
+              }
+            ]);
+            setBookingReply("");
+            setBookingReplyFiles([]);
+            bookingReplyMutation.mutate({ queueId, body, files });
+          }}
+          sendingReply={bookingReplyMutation.isPending}
+        />
+        <ConfirmDialog
+          open={deleteOpen}
+          title="Delete booking?"
+          description="This booking and its saved workflow details will be removed from the CRM. This action cannot be undone."
+          confirmLabel="Delete"
+          loading={deleteMutation.isPending}
+          onOpenChange={(open) => {
+            if (!open && !deleteMutation.isPending) setDeleteOpen(false);
+          }}
+          onConfirm={() => deleteMutation.mutate()}
+        />
+        {pdfDialog}
+        {composeDialog}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <ModernBillingDetail
         doc={doc}
         connectedRecords={connectedRecords}
         hasRevisionDetails={hasRevisionDetails}
         onBack={() => navigate(-1)}
         onOpenPdf={openPdf}
+        onComposeEmail={() => setComposeOpen(true)}
         onSendEmail={() => sendMutation.mutate()}
         sendingEmail={sendMutation.isPending}
         onClone={() => cloneMutation.mutate()}
         cloning={cloneMutation.isPending}
-        onDelete={() => {
-          if (window.confirm("Delete this booking?")) deleteMutation.mutate();
-        }}
+        onDelete={() => setDeleteOpen(true)}
         deleting={deleteMutation.isPending}
-        mailboxThread={bookingThread ?? null}
-        reply={bookingReply}
-        replyFiles={bookingReplyFiles}
-        queuedReplies={queuedBookingReplies}
-        setReply={setBookingReply}
-        setReplyFiles={setBookingReplyFiles}
-        onSendReply={() => {
-          if (!bookingThread?.id || (!bookingReply.trim() && !bookingReplyFiles.length)) return;
-          const queueId = `booking-reply-${Date.now()}`;
-          const body = bookingReply;
-          const files = bookingReplyFiles;
-          setQueuedBookingReplies((current) => [
-            ...current,
-            {
-              id: queueId,
-              body: body.trim() || `${files.length} attachment(s)`,
-              fileNames: files.map((file) => file.name),
-              createdAt: new Date().toISOString(),
-              status: "sending"
-            }
-          ]);
-          setBookingReply("");
-          setBookingReplyFiles([]);
-          bookingReplyMutation.mutate({ queueId, body, files });
-        }}
-        sendingReply={bookingReplyMutation.isPending}
+        onMarkPaid={() => paidMutation.mutate()}
+        markingPaid={paidMutation.isPending}
       />
-    );
-  }
-
-  return (
-    <ModernBillingDetail
-      doc={doc}
-      connectedRecords={connectedRecords}
-      hasRevisionDetails={hasRevisionDetails}
-      onBack={() => navigate(-1)}
-      onOpenPdf={openPdf}
-      onSendEmail={() => sendMutation.mutate()}
-      sendingEmail={sendMutation.isPending}
-      onClone={() => cloneMutation.mutate()}
-      cloning={cloneMutation.isPending}
-      onDelete={() => {
-        if (window.confirm("Delete this record?")) deleteMutation.mutate();
-      }}
-      deleting={deleteMutation.isPending}
-      onMarkPaid={() => paidMutation.mutate()}
-      markingPaid={paidMutation.isPending}
-    />
+      <ConfirmDialog
+        open={deleteOpen}
+        title="Delete record?"
+        description="This invoice or quotation will be removed from the CRM. This action cannot be undone."
+        confirmLabel="Delete"
+        loading={deleteMutation.isPending}
+        onOpenChange={(open) => {
+          if (!open && !deleteMutation.isPending) setDeleteOpen(false);
+        }}
+        onConfirm={() => deleteMutation.mutate()}
+      />
+      {pdfDialog}
+      {composeDialog}
+    </>
   );
 }
 
@@ -218,6 +273,7 @@ function ModernBillingDetail({
   hasRevisionDetails,
   onBack,
   onOpenPdf,
+  onComposeEmail,
   onSendEmail,
   sendingEmail,
   onClone,
@@ -232,6 +288,7 @@ function ModernBillingDetail({
   hasRevisionDetails: boolean;
   onBack: () => void;
   onOpenPdf: () => void;
+  onComposeEmail: () => void;
   onSendEmail: () => void;
   sendingEmail: boolean;
   onClone: () => void;
@@ -250,85 +307,99 @@ function ModernBillingDetail({
   const dueDate = doc.dueDate;
 
   return (
-    <div className="mx-auto max-w-[1540px] space-y-4 text-[#101828]">
-      <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-start">
+    <div className="mx-auto max-w-[1540px] space-y-4 text-foreground sm:space-y-5">
+      <div className="rounded-2xl border border-border/60 bg-card/85 p-3 shadow-apple backdrop-blur-xl sm:rounded-[28px] sm:p-6">
+      <div className="flex flex-col justify-between gap-5 xl:flex-row xl:items-start">
         <div className="min-w-0">
           <div className="mb-3 flex flex-wrap items-center gap-2">
-            <Button type="button" variant="outline" className="h-9 border-[#d9e0ea] bg-white text-[#101828] hover:bg-[#f8fafc]" onClick={onBack}>
+            <Button type="button" variant="outline" className="h-9 rounded-xl border-border/70 bg-background/80 text-foreground hover:bg-secondary" onClick={onBack}>
               <ArrowLeft className="h-4 w-4" />
               Back
             </Button>
-            <span className="rounded-md border border-[#d9e0ea] bg-white px-3 py-2 text-sm font-semibold">{noun}</span>
-            <span className={doc.status === "DRAFT" ? "rounded-md border border-[#bfdbfe] bg-[#eff6ff] px-3 py-2 text-sm font-semibold text-[#2563eb]" : "rounded-md border border-[#d9e0ea] bg-[#f8fafc] px-3 py-2 text-sm font-semibold text-[#344054]"}>
+            <span className="rounded-xl border border-border/60 bg-background/70 px-3 py-2 text-sm font-semibold">{noun}</span>
+            <span className={doc.status === "DRAFT" ? "rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm font-semibold text-amber-600" : "rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-sm font-semibold text-blue-600"}>
               {titleCase(doc.status)}
             </span>
             {isInvoice ? (
-              <span className={paid ? "rounded-md border border-[#bbf7d0] bg-[#ecfdf3] px-3 py-2 text-sm font-semibold text-[#15803d]" : "rounded-md border border-[#ffd0d6] bg-[#fff1f3] px-3 py-2 text-sm font-semibold text-[#ef1228]"}>
+              <span className={paid ? "rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-600" : "rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm font-semibold text-primary"}>
                 {paid ? "Paid" : "Unpaid"}
               </span>
             ) : null}
-            {hasRevisionDetails ? <span className="rounded-md bg-[#eef2ff] px-3 py-2 text-sm font-semibold text-[#344054]">Revision {doc.revisionNo}</span> : null}
+            {hasRevisionDetails ? <span className="rounded-xl bg-secondary px-3 py-2 text-sm font-semibold text-secondary-foreground">Revision {doc.revisionNo}</span> : null}
           </div>
-          <h1 className="truncate text-[34px] font-bold tracking-[-0.03em]">{noun} - {doc.documentNo}</h1>
-          <p className="mt-1 text-sm text-[#53627a]">{doc.jobTitle || "-"}</p>
+          <h1 className="break-words text-xl font-bold tracking-tight sm:text-4xl">{noun} - {doc.documentNo}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{plainTextFromHtml(doc.jobTitle) || "-"}</p>
         </div>
 
-        <div className="flex flex-wrap gap-2 xl:justify-end">
-          <Button variant="outline" className="h-11 border-[#d9e0ea] bg-white px-5 font-semibold text-[#101828] hover:bg-[#f8fafc]" onClick={onClone} loading={cloning}>
+        <div className="scrollbar-hide flex max-w-full min-w-0 gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-2 sm:overflow-visible sm:pb-0 xl:flex xl:max-w-[720px] xl:flex-wrap xl:justify-end">
+          <Button variant="outline" className="h-10 w-auto shrink-0 rounded-xl border-border/70 bg-background/80 px-4 font-semibold text-foreground hover:bg-secondary sm:h-11 sm:w-full sm:px-5 xl:w-auto" onClick={onClone} loading={cloning}>
             <CopyPlus className="h-4 w-4" />
             New Revision
           </Button>
-          <Button asChild className="h-11 bg-[#ef1228] px-5 font-semibold text-white hover:bg-[#d90f22]">
+          <Button asChild className="h-10 w-auto shrink-0 rounded-xl px-4 font-semibold shadow-sm sm:h-11 sm:w-full sm:px-5 xl:w-auto">
             <Link to={`/documents/${doc.id}/edit`}>
               <Edit className="h-4 w-4" />
               Edit Current
             </Link>
           </Button>
-          <Button variant="outline" className="h-11 border-[#d9e0ea] bg-white px-5 font-semibold text-[#101828] hover:bg-[#f8fafc]" onClick={onOpenPdf}>
+          <Button variant="outline" className="h-10 w-auto shrink-0 rounded-xl border-border/70 bg-background/80 px-4 font-semibold text-foreground hover:bg-secondary sm:h-11 sm:w-full sm:px-5 xl:w-auto" onClick={onOpenPdf}>
             <FileText className="h-4 w-4" />
             View PDF
           </Button>
-          <Button variant="outline" className="h-11 border-[#d9e0ea] bg-white px-5 font-semibold text-[#101828] hover:bg-[#f8fafc]" onClick={onSendEmail} loading={sendingEmail}>
+          <Button variant="outline" className="h-10 w-auto shrink-0 rounded-xl border-border/70 bg-background/80 px-4 font-semibold text-foreground hover:bg-secondary sm:h-11 sm:w-full sm:px-5 xl:w-auto" onClick={onSendEmail} loading={sendingEmail}>
             <Mail className="h-4 w-4" />
             {sendingEmail ? "Sending..." : "Send Email"}
           </Button>
           {isInvoice && !paid ? (
-            <Button className="h-11 bg-[#ef1228] px-5 font-semibold text-white hover:bg-[#d90f22]" onClick={onMarkPaid} loading={markingPaid}>
+            <Button className="h-10 w-auto shrink-0 rounded-xl px-4 font-semibold sm:h-11 sm:w-full sm:px-5 xl:w-auto" onClick={onMarkPaid} loading={markingPaid}>
               <Wallet className="h-4 w-4" />
               Mark Paid
             </Button>
           ) : null}
-          <Button variant="outline" className="h-11 border-[#ffd0d6] bg-white px-5 font-semibold text-[#ef1228] hover:bg-[#fff1f3]" onClick={onDelete} loading={deleting}>
+          <Button variant="outline" className="h-10 w-auto shrink-0 rounded-xl border-primary/25 bg-background/80 px-4 font-semibold text-primary hover:bg-primary/10 sm:h-11 sm:w-full sm:px-5 xl:w-auto" onClick={onDelete} loading={deleting}>
             <Trash2 className="h-4 w-4" />
             Delete
           </Button>
         </div>
       </div>
+      </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_600px]">
-        <div className="space-y-4">
-          <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+      <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[minmax(0,1fr)_600px]">
+        <div className="min-w-0 space-y-4">
+          <section className="rounded-2xl border border-border/50 bg-card/75 p-3.5 shadow-apple backdrop-blur-xl sm:p-5">
             <h2 className="mb-4 text-lg font-bold">{noun} Details</h2>
-            <div className="grid gap-x-12 gap-y-5 md:grid-cols-2">
-              <BillingInfo label="Client" value={displayName(doc.client)} />
-              <BillingInfo label="Due Date" value={formatDate(dueDate)} />
-              <BillingInfo label="Email" value={doc.client?.email ?? "-"} link={doc.client?.email ? `mailto:${doc.client.email}` : undefined} />
-              <BillingInfo label="Job Description" value={doc.jobTitle || "-"} />
-              <BillingInfo label="Phone" value={doc.phoneNo ?? doc.client?.phone ?? "-"} />
-              {isInvoice ? <BillingInfo label="Payment Status" value={paid ? "Paid" : "Unpaid"} accent={!paid} /> : <BillingInfo label="Status" value={titleCase(doc.status)} />}
-              <BillingInfo label="Address" value={doc.addressLine ?? "-"} />
-              <BillingInfo label="Paid At" value={doc.paidAt ? formatDateTime(doc.paidAt) : "-"} />
-              <BillingInfo label="Issue Date" value={formatDate(issueDate)} />
-              <BillingInfo label="Email Status" value={emailStatusLabel(doc.emailStatus)} />
+            <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+              <BillingInfo icon={UserRound} label="Client" value={displayName(doc.client)} />
+              <BillingInfo icon={CalendarDays} label="Due Date" value={formatDate(dueDate)} />
+              <BillingInfo icon={Mail} label="Email" value={doc.client?.email ?? "-"} onAction={doc.client?.email ? onComposeEmail : undefined} />
+              <BillingInfo icon={FileText} label="Job Description" value={plainTextFromHtml(doc.jobTitle) || "-"} />
+              <BillingInfo icon={Phone} label="Phone" value={doc.phoneNo ?? doc.client?.phone ?? "-"} />
+              {isInvoice ? <BillingInfo icon={Wallet} label="Payment Status" value={paid ? "Paid" : "Unpaid"} accent={!paid} /> : <BillingInfo icon={CheckCircle2} label="Status" value={titleCase(doc.status)} />}
+              <BillingInfo icon={MapPin} label="Address" value={doc.addressLine ?? "-"} />
+              <BillingInfo icon={Clock3} label="Paid At" value={doc.paidAt ? formatDateTime(doc.paidAt) : "-"} />
+              <BillingInfo icon={CalendarDays} label="Issue Date" value={formatDate(issueDate)} />
+              <BillingInfo icon={Mail} label="Email Status" value={emailStatusLabel(doc.emailStatus)} />
             </div>
-            {doc.emailError ? <div className="mt-4 rounded-md border border-[#ffd0d6] bg-[#fff1f3] p-3 text-sm text-[#ef1228]">{doc.emailError}</div> : null}
+            {doc.emailError ? <div className="mt-4 rounded-xl border border-primary/25 bg-primary/10 p-3 text-sm text-primary">{doc.emailError}</div> : null}
           </section>
 
-          <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+          <section className="rounded-2xl border border-border/50 bg-card/75 p-3.5 shadow-apple backdrop-blur-xl sm:p-5">
             <h2 className="mb-4 text-lg font-bold">Items</h2>
-            <div className="overflow-hidden rounded-lg border border-[#dfe5ee]">
+            <div className="space-y-2 sm:hidden">
+              {doc.lineItems?.length ? doc.lineItems.map((item) => (
+                <article key={item.id ?? item.title} className="rounded-xl border border-border/60 bg-background/70 p-3">
+                  <div className="break-words text-sm font-semibold text-foreground">{plainTextFromHtml(item.title || item.description) || "-"}</div>
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                    <div><span className="block text-[10px] uppercase text-muted-foreground">Qty</span><span className="mt-1 block font-semibold">{Number(item.quantity || 0)}</span></div>
+                    <div><span className="block text-[10px] uppercase text-muted-foreground">Rate</span><span className="mt-1 block font-semibold">{currency(item.unitPrice)}</span></div>
+                    <div className="text-right"><span className="block text-[10px] uppercase text-muted-foreground">Amount</span><span className="mt-1 block font-bold text-primary">{currency(item.total)}</span></div>
+                  </div>
+                </article>
+              )) : <div className="rounded-xl border border-dashed border-border/70 p-6 text-center text-sm text-muted-foreground">No items added.</div>}
+            </div>
+            <div className="hidden overflow-x-auto rounded-2xl border border-border/60 sm:block">
               <table className="w-full min-w-[640px] table-fixed text-left text-sm">
-                <thead className="bg-[#f8fafc] text-xs font-bold text-[#101828]">
+                <thead className="bg-secondary/60 text-xs font-bold text-muted-foreground">
                   <tr>
                     <th className="w-[48%] px-4 py-3">Description</th>
                     <th className="w-[12%] px-4 py-3 text-center">Qty</th>
@@ -340,7 +411,7 @@ function ModernBillingDetail({
                   {doc.lineItems?.length ? (
                     doc.lineItems.map((item) => (
                       <tr key={item.id ?? item.title}>
-                        <td className="px-4 py-4">{item.title || item.description || "-"}</td>
+                        <td className="px-4 py-4">{plainTextFromHtml(item.title || item.description) || "-"}</td>
                         <td className="px-4 py-4 text-center">{Number(item.quantity || 0)}</td>
                         <td className="px-4 py-4 text-right">{currency(item.unitPrice)}</td>
                         <td className="px-4 py-4 text-right">{currency(item.total)}</td>
@@ -348,37 +419,37 @@ function ModernBillingDetail({
                     ))
                   ) : (
                     <tr>
-                      <td className="px-4 py-8 text-center text-[#667085]" colSpan={4}>No items added.</td>
+                      <td className="px-4 py-8 text-center text-muted-foreground" colSpan={4}>No items added.</td>
                     </tr>
                   )}
                 </tbody>
               </table>
             </div>
-            <div className="mt-4 ml-auto w-full max-w-sm overflow-hidden rounded-lg border border-[#dfe5ee]">
-              <div className="flex items-center justify-between border-b border-[#edf1f6] px-5 py-4 text-sm">
+            <div className="mt-4 ml-auto w-full max-w-sm overflow-hidden rounded-2xl border border-border/60">
+              <div className="flex items-center justify-between border-b border-border/60 px-5 py-4 text-sm">
                 <span>Subtotal</span>
                 <span>{currency(subtotal)}</span>
               </div>
               <div className="flex items-center justify-between px-5 py-4">
                 <span className="text-xl font-bold">Total</span>
-                <span className="text-2xl font-bold text-[#ef1228]">{currency(total)}</span>
+                <span className="text-2xl font-bold text-primary">{currency(total)}</span>
               </div>
             </div>
           </section>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <BillingTextPanel title={`${noun} Description`} value={doc.description || doc.jobTitle || "-"} />
-            <BillingTextPanel title="Notes" value={doc.emailNote || doc.pdfNotes || "-"} />
+            <BillingTextPanel title={`${noun} Description`} value={plainTextFromHtml(doc.description || doc.jobTitle) || "-"} />
+            <BillingTextPanel title="Notes" value={plainTextFromHtml(doc.emailNote || doc.pdfNotes) || "-"} />
           </div>
 
           {doc.attachments?.length ? (
-            <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+            <section className="rounded-2xl border border-border/50 bg-card/75 p-5 shadow-apple backdrop-blur-xl">
               <h2 className="mb-4 text-lg font-bold">Images</h2>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 {doc.attachments.map((attachment) => (
-                  <a key={attachment.id ?? attachment.name} href={attachment.dataUrl} target="_blank" rel="noreferrer" className="overflow-hidden rounded-md border border-[#dfe5ee] bg-[#f8fafc]">
+                  <a key={attachment.id ?? attachment.name} href={attachment.dataUrl} target="_blank" rel="noreferrer" className="overflow-hidden rounded-2xl border border-border/60 bg-secondary/40">
                     <img src={attachment.dataUrl} alt={attachment.name} className="h-36 w-full object-cover" />
-                    <div className="truncate p-2 text-xs text-[#667085]">{attachment.name}</div>
+                    <div className="truncate p-2 text-xs text-muted-foreground">{attachment.name}</div>
                   </a>
                 ))}
               </div>
@@ -386,13 +457,13 @@ function ModernBillingDetail({
           ) : null}
 
           {doc.revisions?.length ? (
-            <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+            <section className="rounded-2xl border border-border/50 bg-card/75 p-5 shadow-apple backdrop-blur-xl">
               <h2 className="mb-4 text-lg font-bold">Revision History</h2>
               <div className="space-y-2">
                 {doc.revisions.map((revision) => (
-                  <Link key={revision.id} to={`/documents/${revision.id}`} className="flex items-center justify-between gap-3 rounded-md border border-[#dfe5ee] p-3 hover:border-[#ef1228]">
+                  <Link key={revision.id} to={`/documents/${revision.id}`} className="flex items-center justify-between gap-3 rounded-2xl border border-border/60 p-3 hover:border-primary/40 hover:bg-primary/5">
                     <span className="min-w-0 truncate font-medium">{documentDisplayTitle(revision)}</span>
-                    <span className="shrink-0 text-sm text-[#667085]">Revision {revision.revisionNo}</span>
+                    <span className="shrink-0 text-sm text-muted-foreground">Revision {revision.revisionNo}</span>
                   </Link>
                 ))}
               </div>
@@ -402,7 +473,7 @@ function ModernBillingDetail({
 
         <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
           <BillingPreviewPanel doc={doc} noun={noun} paid={paid} subtotal={subtotal} total={total} issueDate={issueDate} dueDate={dueDate} />
-          <BillingConnectedRecords doc={doc} connectedRecords={connectedRecords} />
+          <ConnectedRecordsPanel doc={doc} connectedRecords={connectedRecords} showClient />
           <BillingTimeline doc={doc} paid={paid} />
         </aside>
       </div>
@@ -410,26 +481,36 @@ function ModernBillingDetail({
   );
 }
 
-function BillingInfo({ label, value, link, accent }: { label: string; value: string; link?: string; accent?: boolean }) {
-  return (
-    <div className="grid grid-cols-[130px_1fr] items-start gap-4 text-sm">
-      <div className="font-medium text-[#53627a]">{label}</div>
-      {link ? (
-        <a className="break-words font-medium text-[#2563eb] hover:underline" href={link}>{value}</a>
-      ) : accent ? (
-        <span className="w-fit rounded-md border border-[#ffd0d6] bg-[#fff1f3] px-2 py-1 text-xs font-bold text-[#ef1228]">{value}</span>
-      ) : (
-        <div className="break-words font-medium">{value}</div>
-      )}
-    </div>
+function BillingInfo({ icon: Icon, label, value, accent, onAction }: { icon: LucideIcon; label: string; value: string; accent?: boolean; onAction?: () => void }) {
+  const content = (
+    <>
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-secondary text-muted-foreground">
+        <Icon className="h-4 w-4" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[11px] font-bold uppercase text-muted-foreground">{label}</span>
+        {accent ? (
+          <span className="mt-1 inline-flex w-fit rounded-lg border border-primary/20 bg-primary/10 px-2 py-1 text-xs font-bold text-primary">{value}</span>
+        ) : (
+          <span className={`mt-1 block min-w-0 break-words text-sm font-semibold [overflow-wrap:anywhere] ${onAction ? "text-primary" : "text-foreground"}`}>{value}</span>
+        )}
+      </span>
+      {onAction ? <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" /> : null}
+    </>
+  );
+  const className = "flex min-w-0 items-start gap-3 rounded-xl border border-border/60 bg-background/70 p-3 text-left transition sm:rounded-2xl";
+  return onAction ? (
+    <button type="button" className={`${className} w-full hover:border-primary/35 hover:bg-primary/5`} onClick={onAction}>{content}</button>
+  ) : (
+    <div className={className}>{content}</div>
   );
 }
 
 function BillingTextPanel({ title, value }: { title: string; value: string }) {
   return (
-    <section className="min-h-[150px] rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+    <section className="min-h-[120px] rounded-2xl border border-border/50 bg-card/75 p-4 shadow-apple backdrop-blur-xl sm:min-h-[150px] sm:p-5">
       <h2 className="text-lg font-bold">{title}</h2>
-      <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-[#53627a]">{value}</p>
+      <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{value}</p>
     </section>
   );
 }
@@ -452,7 +533,7 @@ function BillingPreviewPanel({
   dueDate?: string;
 }) {
   return (
-    <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+    <section className="rounded-2xl border border-border/50 bg-card/75 p-5 shadow-apple backdrop-blur-xl">
       <h2 className="mb-4 text-lg font-bold">Live PDF Preview</h2>
       <div className="rounded-lg border border-[#dfe5ee] bg-white p-5">
         <div className="flex items-start justify-between gap-4">
@@ -520,38 +601,128 @@ function PreviewMeta({ label, value }: { label: string; value: string }) {
   );
 }
 
-function BillingConnectedRecords({ doc, connectedRecords }: { doc: DocumentRecord; connectedRecords: DocumentRecord[] }) {
+function ConnectedRecordsPanel({
+  doc,
+  connectedRecords,
+  showClient = false
+}: {
+  doc: DocumentRecord;
+  connectedRecords: DocumentRecord[];
+  showClient?: boolean;
+}) {
+  const records = [...connectedRecords].sort((left, right) => connectedRecordTimestamp(right) - connectedRecordTimestamp(left));
+
   return (
-    <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
-      <h2 className="mb-4 flex items-center gap-2 text-lg font-bold">
-        <Link2 className="h-5 w-5 text-[#ef1228]" />
-        Connected Records
-      </h2>
-      <div className="overflow-hidden rounded-lg border border-[#edf1f6]">
-        {doc.client?.id ? (
-          <Link to={`/clients/${doc.client.id}`} className="flex items-center justify-between border-b border-[#edf1f6] px-4 py-3 text-sm hover:bg-[#f8fafc]">
-            <span>Client</span>
-            <span className="inline-flex items-center gap-2 font-semibold text-[#2563eb]">{displayName(doc.client)} <ArrowLeft className="h-4 w-4 rotate-180" /></span>
+    <section className="rounded-[24px] border border-border/60 bg-card/85 p-4 shadow-apple backdrop-blur-xl sm:p-5">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div>
+          <h2 className="flex items-center gap-2 text-lg font-bold">
+            <Link2 className="h-5 w-5 text-primary" />
+            Connected Records
+          </h2>
+          <p className="mt-1 text-xs text-muted-foreground">Records linked through the same customer workflow.</p>
+        </div>
+        <span className="flex h-8 min-w-8 shrink-0 items-center justify-center rounded-full bg-secondary px-2 text-xs font-bold text-secondary-foreground">
+          {records.length}
+        </span>
+      </div>
+
+      <div className="space-y-2.5">
+        {showClient && doc.client?.id ? (
+          <Link
+            to={`/clients/${doc.client.id}`}
+            className="group flex items-center gap-3 rounded-2xl border border-primary/15 bg-primary/[0.045] p-3 transition hover:border-primary/35 hover:bg-primary/[0.075]"
+          >
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <UserRound className="h-4 w-4" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[11px] font-bold uppercase text-muted-foreground">Client</span>
+              <span className="block truncate text-sm font-bold text-foreground">{displayName(doc.client)}</span>
+              {doc.client.email ? <span className="mt-0.5 block truncate text-xs text-muted-foreground">{doc.client.email}</span> : null}
+            </span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
           </Link>
         ) : null}
-        {connectedRecords.map((item) => (
-          <Link key={item.id} to={`/documents/${item.id}`} className="flex items-center justify-between border-b border-[#edf1f6] px-4 py-3 text-sm last:border-b-0 hover:bg-[#f8fafc]">
-            <span>{documentTypeLabel(item.type)}</span>
-            <span className="inline-flex items-center gap-2 font-semibold text-[#2563eb]">{item.documentNo} <ArrowLeft className="h-4 w-4 rotate-180" /></span>
-          </Link>
-        ))}
-        {!doc.client?.id && !connectedRecords.length ? <div className="px-4 py-6 text-center text-sm text-[#667085]">No connected records</div> : null}
+
+        {records.map((item) => {
+          const Icon = connectedRecordIcon(item.type);
+          const amount = item.type === "BOOKING" ? null : currency(item.total ?? item.price);
+          return (
+            <Link
+              key={item.id}
+              to={`/documents/${item.id}`}
+              className="group flex items-center gap-3 rounded-2xl border border-border/60 bg-background/70 p-3 transition hover:border-primary/35 hover:bg-primary/[0.045] hover:shadow-sm"
+            >
+              <span className={connectedRecordIconClass(item.type)}>
+                <Icon className="h-4 w-4" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="truncate text-sm font-bold text-foreground">{documentDisplayTitle(item)}</span>
+                  <span className="shrink-0 rounded-lg bg-secondary px-2 py-0.5 text-[10px] font-bold text-secondary-foreground">
+                    {documentTypeLabel(item.type)}
+                  </span>
+                </span>
+                <span className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                  <span className="inline-flex items-center gap-1">
+                    <CalendarDays className="h-3.5 w-3.5" />
+                    {recordDate(item)}
+                  </span>
+                  <ConnectedRecordStatus record={item} />
+                  {amount ? <span className="font-semibold text-foreground">{amount}</span> : null}
+                </span>
+              </span>
+              <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+            </Link>
+          );
+        })}
+
+        {!records.length ? <EmptyBookingState text="No connected bookings, invoices or quotations yet." compact /> : null}
       </div>
     </section>
   );
 }
 
+function ConnectedRecordStatus({ record }: { record: DocumentRecord }) {
+  const paid = record.type === "INVOICE" && (record.paymentStatus === "PAID" || record.status === "PAID");
+  const confirmed = record.type === "BOOKING" && record.bookingConfirmed;
+  const label = paid ? "Paid" : confirmed ? "Confirmed" : titleCase(record.status);
+  const className = paid || confirmed || record.status === "CONFIRMED"
+    ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+    : record.status === "CANCELLED"
+      ? "bg-primary/10 text-primary"
+      : record.status === "DRAFT"
+        ? "bg-amber-500/10 text-amber-700 dark:text-amber-400"
+        : "bg-blue-500/10 text-blue-700 dark:text-blue-400";
+
+  return <span className={`rounded-lg px-1.5 py-0.5 text-[10px] font-bold ${className}`}>{label}</span>;
+}
+
+function connectedRecordIcon(type: DocumentRecord["type"]): LucideIcon {
+  if (type === "BOOKING") return CalendarDays;
+  if (type === "INVOICE") return Receipt;
+  return FileText;
+}
+
+function connectedRecordIconClass(type: DocumentRecord["type"]) {
+  if (type === "BOOKING") return "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400";
+  if (type === "INVOICE") return "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400";
+  return "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400";
+}
+
+function connectedRecordTimestamp(record: DocumentRecord) {
+  const value = record.type === "BOOKING" ? record.bookingDate : record.issueDate;
+  const timestamp = new Date(value || record.createdAt).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
 function BillingTimeline({ doc, paid }: { doc: DocumentRecord; paid: boolean }) {
   const noun = doc.type === "QUOTATION" ? "Quotation" : "Invoice";
   return (
-    <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+    <section className="rounded-2xl border border-border/50 bg-card/75 p-5 shadow-apple backdrop-blur-xl">
       <h2 className="mb-4 flex items-center gap-2 text-lg font-bold">
-        <CalendarDays className="h-5 w-5 text-[#ef1228]" />
+        <CalendarDays className="h-5 w-5 text-primary" />
         Activity Timeline
       </h2>
       <div className="space-y-4">
@@ -566,12 +737,12 @@ function BillingTimeline({ doc, paid }: { doc: DocumentRecord; paid: boolean }) 
 function TimelineLine({ icon: Icon, title, detail, active, success }: { icon: LucideIcon; title: string; detail: string; active?: boolean; success?: boolean }) {
   return (
     <div className="flex gap-3">
-      <div className={success ? "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#dcfce7] text-[#15803d]" : active ? "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#ef1228] text-white" : "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#071527] text-white"}>
+      <div className={success ? "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600" : active ? "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground" : "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-secondary text-secondary-foreground"}>
         <Icon className="h-4 w-4" />
       </div>
       <div className="min-w-0">
         <div className="text-sm font-bold">{title}</div>
-        <div className="mt-1 text-xs text-[#667085]">{detail}</div>
+        <div className="mt-1 text-xs text-muted-foreground">{detail}</div>
       </div>
     </div>
   );
@@ -583,6 +754,7 @@ function ModernBookingDetail({
   hasRevisionDetails,
   onBack,
   onOpenPdf,
+  onComposeEmail,
   onSendEmail,
   sendingEmail,
   onClone,
@@ -603,6 +775,7 @@ function ModernBookingDetail({
   hasRevisionDetails: boolean;
   onBack: () => void;
   onOpenPdf: () => void;
+  onComposeEmail: () => void;
   onSendEmail: () => void;
   sendingEmail: boolean;
   onClone: () => void;
@@ -626,73 +799,73 @@ function ModernBookingDetail({
   const attachments = doc.attachments ?? [];
 
   return (
-    <div className="mx-auto max-w-[1540px] space-y-4 text-[#101828]">
-      <div className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+    <div className="mx-auto max-w-[1540px] space-y-4 text-foreground sm:space-y-5">
+      <div className="rounded-2xl border border-border/60 bg-card/85 p-3 shadow-apple backdrop-blur-xl sm:rounded-[28px] sm:p-6">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0">
-            <button type="button" className="mb-4 inline-flex items-center gap-2 text-sm font-bold text-[#344054] transition hover:text-[#ef1228]" onClick={onBack}>
+            <button type="button" className="mb-4 inline-flex items-center gap-2 rounded-full bg-secondary/70 px-3 py-1.5 text-sm font-semibold text-muted-foreground transition hover:bg-secondary hover:text-primary" onClick={onBack}>
               <ArrowLeft className="h-4 w-4" />
               Back
             </button>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-full bg-[#fff1f3] px-3 py-1 text-xs font-bold text-[#ef1228]">Booking</span>
+              <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary">Booking</span>
               <span className="rounded-full bg-[#eefdf3] px-3 py-1 text-xs font-bold text-emerald-700">{statusLabel}</span>
               <span className={doc.bookingConfirmed ? "rounded-full bg-[#eefdf3] px-3 py-1 text-xs font-bold text-emerald-700" : "rounded-full bg-[#fff7e6] px-3 py-1 text-xs font-bold text-amber-700"}>{confirmedLabel}</span>
-              {hasRevisionDetails ? <span className="rounded-full bg-[#eef2ff] px-3 py-1 text-xs font-bold text-[#344054]">Revision {doc.revisionNo}</span> : null}
+              {hasRevisionDetails ? <span className="rounded-full bg-secondary px-3 py-1 text-xs font-bold text-secondary-foreground">Revision {doc.revisionNo}</span> : null}
             </div>
-            <h1 className="mt-3 text-[34px] font-bold tracking-[-0.03em]">{documentDisplayTitle(doc)}</h1>
-            <p className="mt-1 text-sm text-[#53627a]">{doc.jobTitle || "Booking details and customer workflow"}</p>
-            <div className="mt-4 flex flex-wrap gap-3 text-xs text-[#667085]">
-              <span className="inline-flex items-center gap-1.5 rounded-md bg-[#f8fafc] px-2.5 py-1">
+            <h1 className="mt-3 break-words text-xl font-bold tracking-tight sm:text-4xl">{documentDisplayTitle(doc)}</h1>
+            <p className="mt-1 text-sm text-muted-foreground">{plainTextFromHtml(doc.jobTitle) || "Booking details and customer workflow"}</p>
+            <div className="mt-4 grid gap-2 text-xs text-muted-foreground sm:flex sm:flex-wrap sm:gap-3">
+              <span className="inline-flex items-center gap-1.5 rounded-xl bg-secondary/75 px-2.5 py-1.5">
                 <Clock3 className="h-3.5 w-3.5" />
                 Created {createdDate}
               </span>
-              <span className="inline-flex items-center gap-1.5 rounded-md bg-[#f8fafc] px-2.5 py-1">
+              <span className="inline-flex items-center gap-1.5 rounded-xl bg-secondary/75 px-2.5 py-1.5">
                 <CalendarDays className="h-3.5 w-3.5" />
                 Updated {updatedDate}
               </span>
-              <span className="inline-flex items-center gap-1.5 rounded-md bg-[#f8fafc] px-2.5 py-1">
+              <span className="inline-flex items-center gap-1.5 rounded-xl bg-secondary/75 px-2.5 py-1.5">
                 S.No {doc.caseFile?.serialNo ?? "Standalone"}
               </span>
             </div>
           </div>
 
-          <div className="flex flex-wrap justify-start gap-2 xl:max-w-[680px] xl:justify-end">
-            <Button asChild variant="outline" className="h-10 border-[#d5dce7] bg-white text-[#101828] hover:bg-[#f8fafc]">
+          <div className="scrollbar-hide flex max-w-full min-w-0 gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-2 sm:overflow-visible sm:pb-0 xl:flex xl:max-w-[720px] xl:flex-wrap xl:justify-end">
+            <Button asChild variant="outline" className="h-10 w-auto shrink-0 justify-center rounded-xl border-border/70 bg-background/80 px-4 text-foreground hover:bg-secondary sm:w-full xl:w-auto">
               <Link to={`/documents/${doc.id}/edit`}>
                 <Edit className="h-4 w-4" />
                 Edit
               </Link>
             </Button>
-            <Button asChild className="h-10 bg-[#ef1228] text-white hover:bg-[#d90f22]">
+            <Button asChild className="h-10 w-auto shrink-0 justify-center rounded-xl bg-gradient-to-r from-red-600 to-red-500 px-4 text-white hover:from-red-700 hover:to-red-600 sm:w-full xl:w-auto">
               <Link to={`/documents/new/INVOICE?sourceDocumentId=${doc.id}`}>
                 <Receipt className="h-4 w-4" />
                 Create Invoice
               </Link>
             </Button>
-            <Button asChild variant="outline" className="h-10 border-[#d5dce7] bg-white text-[#101828] hover:bg-[#f8fafc]">
+            <Button asChild variant="outline" className="h-10 w-auto shrink-0 justify-center rounded-xl border-border/70 bg-background/80 px-4 text-foreground hover:bg-secondary sm:w-full xl:w-auto">
               <Link to={`/documents/new/QUOTATION?sourceDocumentId=${doc.id}`}>
                 <FileText className="h-4 w-4" />
                 Create Quotation
               </Link>
             </Button>
-            <Button variant="outline" className="h-10 border-[#d5dce7] bg-white text-[#101828] hover:bg-[#f8fafc]" onClick={onClone} loading={cloning}>
+            <Button variant="outline" className="h-10 w-auto shrink-0 justify-center rounded-xl border-border/70 bg-background/80 px-4 text-foreground hover:bg-secondary sm:w-full xl:w-auto" onClick={onClone} loading={cloning}>
               <CopyPlus className="h-4 w-4" />
               New Revision
             </Button>
             <Button
               variant="outline"
-              className="h-10 border-[#d5dce7] bg-white text-[#101828] hover:bg-[#f8fafc]"
+              className="h-10 w-auto shrink-0 justify-center rounded-xl border-border/70 bg-background/80 px-4 text-foreground hover:bg-secondary sm:w-full xl:w-auto"
               onClick={onOpenPdf}
             >
               <FileText className="h-4 w-4" />
               View PDF
             </Button>
-            <Button className="h-10 bg-[#ef1228] text-white hover:bg-[#d90f22]" onClick={onSendEmail} loading={sendingEmail}>
+            <Button className="h-10 w-auto shrink-0 justify-center rounded-xl bg-gradient-to-r from-red-600 to-red-500 px-4 text-white hover:from-red-700 hover:to-red-600 sm:w-full xl:w-auto" onClick={onSendEmail} loading={sendingEmail}>
               <Send className="h-4 w-4" />
               Send Email
             </Button>
-            <Button variant="outline" className="h-10 border-[#ffd0d6] bg-white text-[#ef1228] hover:bg-[#fff1f3]" onClick={onDelete} loading={deleting}>
+            <Button variant="outline" className="h-10 w-auto shrink-0 justify-center rounded-xl border-primary/25 bg-background/80 px-4 text-primary hover:bg-primary/10 sm:w-full xl:w-auto" onClick={onDelete} loading={deleting}>
               <Trash2 className="h-4 w-4" />
               Delete
             </Button>
@@ -700,51 +873,51 @@ function ModernBookingDetail({
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_390px]">
-        <div className="space-y-4">
-          <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+      <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[minmax(0,1fr)_390px]">
+        <div className="min-w-0 space-y-4">
+          <section className="rounded-2xl border border-border/60 bg-card/85 p-3.5 shadow-apple backdrop-blur-xl sm:rounded-[24px] sm:p-5">
             <div className="mb-5 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-lg font-bold">Client & Booking Details</h2>
-                <p className="mt-1 text-xs text-[#667085]">Customer, address and booking information.</p>
+                <p className="mt-1 text-xs text-muted-foreground">Customer, address and booking information.</p>
               </div>
-              <span className="rounded-md bg-[#fff1f3] px-2.5 py-1 text-xs font-bold text-[#ef1228]">{doc.documentNo}</span>
+              <span className="rounded-xl bg-primary/10 px-2.5 py-1 text-xs font-bold text-primary">{doc.documentNo}</span>
             </div>
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              <DetailTile label="Client" value={clientName} />
-              <DetailTile label="Email" value={doc.client?.email ?? "-"} />
-              <DetailTile label="Phone" value={doc.phoneNo ?? doc.client?.phone ?? "-"} />
-              <DetailTile label="CC" value={doc.cc ?? "-"} />
-              <DetailTile label="Postal Code" value={doc.postalCode ?? "-"} />
-              <DetailTile label="Booking Date" value={doc.bookingDate ? recordDate(doc) : "-"} />
-              <DetailTile label="Address" value={doc.addressLine ?? "-"} wide />
-              <DetailTile label="Extra Address" value={doc.extraAddress ?? "-"} wide />
-              <DetailTile label="Job Title" value={doc.jobTitle || "-"} wide />
-              <DetailTile label="Include" value={parseInclude(doc.includeOptions).join(", ") || "-"} />
-              <DetailTile label="Price" value={currency(doc.price ?? doc.total)} />
+            <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <DetailTile icon={UserRound} label="Client" value={clientName} />
+              <DetailTile icon={Mail} label="Email" value={doc.client?.email ?? "-"} onAction={doc.client?.email ? onComposeEmail : undefined} />
+              <DetailTile icon={Phone} label="Phone" value={doc.phoneNo ?? doc.client?.phone ?? "-"} />
+              <DetailTile icon={Mail} label="CC" value={doc.cc ?? "-"} />
+              <DetailTile icon={MapPin} label="Postal Code" value={doc.postalCode ?? "-"} />
+              <DetailTile icon={CalendarDays} label="Booking Date" value={doc.bookingDate ? recordDate(doc) : "-"} />
+              <DetailTile icon={MapPin} label="Address" value={doc.addressLine ?? "-"} wide />
+              <DetailTile icon={MapPin} label="Extra Address" value={doc.extraAddress ?? "-"} wide />
+              <DetailTile icon={FileText} label="Job Title" value={plainTextFromHtml(doc.jobTitle) || "-"} wide />
+              <DetailTile icon={CheckCircle2} label="Include" value={parseInclude(doc.includeOptions).join(", ") || "-"} />
+              <DetailTile icon={Wallet} label="Price" value={currency(doc.price ?? doc.total)} />
             </div>
           </section>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <TextPanel title="Greeting Description" value={doc.greeting || "-"} />
-            <TextPanel title="Booking Description" value={doc.emailNote || doc.description || "-"} />
+            <TextPanel title="Greeting Description" value={plainTextFromHtml(doc.greeting) || "-"} />
+            <TextPanel title="Booking Description" value={plainTextFromHtml(doc.emailNote || doc.description) || "-"} />
           </div>
 
-          <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+          <section className="rounded-[24px] border border-border/60 bg-card/85 p-4 shadow-apple backdrop-blur-xl sm:p-5">
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-bold">Images</h2>
-                <p className="mt-1 text-xs text-[#667085]">{attachments.length ? `${attachments.length} file(s) attached` : "No images attached"}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{attachments.length ? `${attachments.length} file(s) attached` : "No images attached"}</p>
               </div>
-              <ImageIcon className="h-5 w-5 text-[#ef1228]" />
+              <ImageIcon className="h-5 w-5 text-primary" />
             </div>
             {attachments.length ? (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                 {attachments.map((attachment) => (
-                  <a key={attachment.id ?? attachment.name} href={attachment.dataUrl} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-lg border border-[#dfe5ee] bg-[#f8fafc] transition hover:border-[#ef1228]">
-                    <img src={attachment.dataUrl} alt={attachment.name} className="h-36 w-full object-cover transition group-hover:scale-[1.02]" />
-                    <div className="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-[#344054]">
-                      <ImageIcon className="h-3.5 w-3.5 text-[#ef1228]" />
+                  <a key={attachment.id ?? attachment.name} href={attachment.dataUrl} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-2xl border border-border/70 bg-secondary/40 transition hover:border-primary/40 hover:bg-primary/5">
+                    <img src={attachment.dataUrl} alt={attachment.name} className="h-28 w-full object-cover transition group-hover:scale-[1.02] sm:h-36" />
+                    <div className="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-foreground">
+                      <ImageIcon className="h-3.5 w-3.5 text-primary" />
                       <span className="truncate">{attachment.name}</span>
                     </div>
                   </a>
@@ -757,7 +930,7 @@ function ModernBookingDetail({
         </div>
 
         <aside className="space-y-4">
-          <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+          <section className="rounded-[24px] border border-border/60 bg-card/85 p-4 shadow-apple backdrop-blur-xl sm:p-5">
             <h2 className="text-lg font-bold">Booking Status</h2>
             <div className="mt-5 space-y-4">
               <TimelineItem done label="Created" value={createdDate} />
@@ -767,24 +940,7 @@ function ModernBookingDetail({
             </div>
           </section>
 
-          <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-lg font-bold">Connected Records</h2>
-              <Link2 className="h-5 w-5 text-[#ef1228]" />
-            </div>
-            <div className="space-y-2">
-              {connectedRecords.map((item) => (
-                <Link key={item.id} to={`/documents/${item.id}`} className="flex items-center justify-between gap-3 rounded-lg border border-[#e7ecf3] bg-[#fcfdff] p-3 transition hover:border-[#ef1228] hover:bg-[#fff8f9]">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-bold">{documentDisplayTitle(item)}</div>
-                    <div className="mt-1 text-xs text-[#667085]">{recordDate(item)}</div>
-                  </div>
-                  <span className="rounded-md bg-[#eef2f7] px-2 py-1 text-xs font-bold text-[#344054]">{documentTypeLabel(item.type)}</span>
-                </Link>
-              ))}
-              {!connectedRecords.length ? <EmptyBookingState text="No invoices or quotations connected yet." compact /> : null}
-            </div>
-          </section>
+          <ConnectedRecordsPanel doc={doc} connectedRecords={connectedRecords} />
         </aside>
       </div>
 
@@ -803,20 +959,32 @@ function ModernBookingDetail({
   );
 }
 
-function DetailTile({ label, value, wide }: { label: string; value: string; wide?: boolean }) {
-  return (
-    <div className={wide ? "rounded-lg border border-[#e7ecf3] bg-[#fcfdff] p-3 md:col-span-2 xl:col-span-3" : "rounded-lg border border-[#e7ecf3] bg-[#fcfdff] p-3"}>
-      <div className="text-xs font-bold uppercase tracking-[0.04em] text-[#667085]">{label}</div>
-      <div className="mt-1 break-words text-sm font-semibold text-[#101828]">{value}</div>
-    </div>
+function DetailTile({ icon: Icon, label, value, wide, onAction }: { icon: LucideIcon; label: string; value: string; wide?: boolean; onAction?: () => void }) {
+  const className = `${wide ? "sm:col-span-2 xl:col-span-3" : ""} flex min-w-0 items-start gap-3 rounded-xl border border-border/60 bg-background/70 p-3 text-left transition sm:rounded-2xl`;
+  const content = (
+    <>
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-secondary text-muted-foreground">
+        <Icon className="h-4 w-4" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[11px] font-bold uppercase text-muted-foreground">{label}</span>
+        <span className={`mt-1 block min-w-0 break-words text-sm font-semibold [overflow-wrap:anywhere] ${onAction ? "text-primary" : "text-foreground"}`}>{value}</span>
+      </span>
+      {onAction ? <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" /> : null}
+    </>
+  );
+  return onAction ? (
+    <button type="button" className={`${className} w-full hover:border-primary/35 hover:bg-primary/5`} onClick={onAction}>{content}</button>
+  ) : (
+    <div className={className}>{content}</div>
   );
 }
 
 function TextPanel({ title, value }: { title: string; value: string }) {
   return (
-    <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+    <section className="rounded-2xl border border-border/60 bg-card/85 p-3.5 shadow-apple backdrop-blur-xl sm:rounded-[24px] sm:p-5">
       <h2 className="text-lg font-bold">{title}</h2>
-      <div className="mt-4 min-h-[150px] whitespace-pre-wrap rounded-lg border border-[#e7ecf3] bg-[#fcfdff] p-4 text-sm leading-6 text-[#344054]">{value}</div>
+      <div className="mt-3 min-h-[110px] whitespace-pre-wrap rounded-xl border border-border/60 bg-background/70 p-3 text-sm leading-6 text-muted-foreground sm:mt-4 sm:min-h-[150px] sm:rounded-2xl sm:p-4">{value}</div>
     </section>
   );
 }
@@ -832,20 +1000,20 @@ function TimelineItem({ done, label, value, danger }: { done: boolean; label: st
       </div>
       <div className="min-w-0 pb-3">
         <div className="text-sm font-bold">{label}</div>
-        <div className="mt-1 break-words text-xs text-[#667085]">{value}</div>
+        <div className="mt-1 break-words text-xs text-muted-foreground">{value}</div>
       </div>
     </div>
   );
 }
 
 function cnStatusDot(done: boolean, danger?: boolean) {
-  if (danger) return "flex h-8 w-8 items-center justify-center rounded-full bg-[#fff1f3] text-[#ef1228]";
+  if (danger) return "flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary";
   if (done) return "flex h-8 w-8 items-center justify-center rounded-full bg-emerald-50 text-emerald-700";
-  return "flex h-8 w-8 items-center justify-center rounded-full bg-[#f3f6fa] text-[#667085]";
+  return "flex h-8 w-8 items-center justify-center rounded-full bg-secondary text-muted-foreground";
 }
 
 function EmptyBookingState({ text, compact }: { text: string; compact?: boolean }) {
-  return <div className={compact ? "rounded-lg border border-dashed border-[#d5dce7] bg-[#fcfdff] p-4 text-center text-xs font-semibold text-[#667085]" : "rounded-lg border border-dashed border-[#d5dce7] bg-[#fcfdff] p-8 text-center text-sm font-semibold text-[#667085]"}>{text}</div>;
+  return <div className={compact ? "rounded-2xl border border-dashed border-border bg-secondary/40 p-4 text-center text-xs font-semibold text-muted-foreground" : "rounded-2xl border border-dashed border-border bg-secondary/40 p-8 text-center text-sm font-semibold text-muted-foreground"}>{text}</div>;
 }
 
 function titleCase(value: string) {
@@ -877,14 +1045,14 @@ function BookingConversation({
   const canReply = Boolean(thread?.id && (reply.trim() || replyFiles.length));
 
   return (
-    <section className="rounded-lg border border-[#dfe5ee] bg-white p-5 shadow-sm">
+    <section className="flex h-[calc(100svh-7rem)] min-h-[680px] flex-col rounded-[24px] border border-border/60 bg-card/85 p-3 shadow-apple backdrop-blur-xl sm:p-5">
       <div className="mb-5 flex flex-col justify-between gap-3 xl:flex-row xl:items-start">
         <div>
           <h2 className="text-lg font-bold">Booking Conversation</h2>
-          <p className="mt-1 text-xs text-[#667085]">Replies linked to this booking email.</p>
+          <p className="mt-1 text-xs text-muted-foreground">Replies linked to this booking email.</p>
         </div>
         {thread ? (
-          <Button asChild variant="outline" className="h-10 border-[#d5dce7] bg-white text-[#101828] hover:bg-[#f8fafc]">
+          <Button asChild variant="outline" className="h-10 rounded-xl border-border/70 bg-background/80 text-foreground shadow-sm hover:bg-secondary">
             <Link to={`/mailbox?thread=${thread.id}&scroll=latest`}>
               <ExternalLink className="h-4 w-4" />
               Open in Mailbox
@@ -893,19 +1061,19 @@ function BookingConversation({
         ) : null}
       </div>
 
-      <div>
-        <div className="rounded-lg border border-[#dfe5ee] bg-[#fcfdff]">
-          <div className="flex flex-wrap items-center gap-3 border-b border-[#e7ecf3] bg-white px-4 py-4">
-            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[#ffd6dc] text-sm font-bold text-[#c80d20]">{bookingInitials(displayName(doc.client) || doc.client?.email || "Client")}</span>
+      <div className="min-h-0 flex-1">
+        <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border border-border/60 bg-background/65">
+          <div className="flex flex-wrap items-center gap-3 border-b border-border/60 bg-card/80 px-4 py-4">
+            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/15 text-sm font-bold text-primary">{bookingInitials(displayName(doc.client) || doc.client?.email || "Client")}</span>
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-bold">{displayName(doc.client) || thread?.fromName || "Customer"}</div>
-              <div className="truncate text-xs text-[#667085]">{doc.client?.email || thread?.fromEmail || "No email linked"}</div>
+              <div className="truncate text-xs text-muted-foreground">{doc.client?.email || thread?.fromEmail || "No email linked"}</div>
             </div>
-            <span className="rounded-full bg-[#fff1f3] px-3 py-1 text-xs font-bold text-[#ef1228]">Linked to booking</span>
-            <span className="rounded-md bg-[#f3f6fa] px-2.5 py-1 text-xs font-bold text-[#344054]">{doc.documentNo}</span>
+            <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-bold text-primary">Linked to booking</span>
+            <span className="rounded-xl bg-secondary px-2.5 py-1 text-xs font-bold text-secondary-foreground">{doc.documentNo}</span>
           </div>
 
-          <div className="max-h-[560px] space-y-4 overflow-y-auto p-4">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3 sm:p-4">
             {messages.length || queuedReplies.length ? (
               <>
               {messages.map((message) => {
@@ -913,31 +1081,31 @@ function BookingConversation({
                 const body = cleanEmailReply(message.textBody || stripHtml(message.htmlBody) || "-");
                 const replyTarget = message.replyToMessage?.textBody || message.replyToMessage?.subject || "Booking confirmation email";
                 return (
-                  <article key={message.id} className={outbound ? "ml-auto max-w-[82%] rounded-lg border border-[#d7e8fb] bg-[#eef7ff] p-4" : "mr-auto max-w-[82%] rounded-lg border border-[#f4d5dc] bg-white p-4"}>
+                  <article key={message.id} className={outbound ? "ml-auto max-w-[94%] rounded-2xl border border-blue-100 bg-blue-50/80 p-3 shadow-sm sm:max-w-[82%] sm:p-4" : "mr-auto max-w-[94%] rounded-2xl border border-primary/15 bg-card p-3 shadow-sm sm:max-w-[82%] sm:p-4"}>
                     <div className="mb-3 flex items-start justify-between gap-3">
                       <div className="flex min-w-0 items-center gap-3">
-                        <span className={outbound ? "flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[#dfe5ee] bg-white text-xs font-black text-[#071527]" : "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#ffd6dc] text-xs font-bold text-[#c80d20]"}>
+                        <span className={outbound ? "flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-white text-xs font-black text-foreground" : "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-xs font-bold text-primary"}>
                           {outbound ? "E" : bookingInitials(message.fromName || message.fromEmail || "Client")}
                         </span>
                         <div className="min-w-0">
                           <div className="truncate text-sm font-bold">{outbound ? "E Electrics Ltd" : message.fromName || message.fromEmail || "Customer"}</div>
-                          <div className="text-xs text-[#667085]">{formatDateTime(message.sentAt || message.createdAt)}</div>
+                          <div className="text-xs text-muted-foreground">{formatDateTime(message.sentAt || message.createdAt)}</div>
                         </div>
                       </div>
                       {outbound ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700"><CheckCircle2 className="h-3.5 w-3.5" /> Sent</span> : <span className="rounded-full bg-[#eef0ff] px-2.5 py-1 text-xs font-bold text-[#4f46e5]">Customer reply</span>}
                     </div>
                     {!outbound ? (
-                      <div className="mb-3 rounded-md border-l-2 border-[#ef1228] bg-[#fff8f9] px-3 py-2 text-xs text-[#667085]">
-                        <span className="font-semibold text-[#101828]">Reply to: </span>
+                      <div className="mb-3 rounded-xl border-l-2 border-primary bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+                        <span className="font-semibold text-foreground">Reply to: </span>
                         <span className="line-clamp-1">{cleanEmailReply(replyTarget)}</span>
                       </div>
                     ) : null}
-                    <p className="whitespace-pre-wrap text-sm leading-6 text-[#344054]">{body}</p>
+                    <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{body}</p>
                     {message.attachments?.length ? (
                       <div className="mt-3 flex flex-wrap gap-2">
                         {message.attachments.map((attachment) => (
-                          <a key={attachment.id} href={crmApi.mailboxAttachmentUrl(message.id, attachment.id)} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-2 rounded-md border border-[#dfe5ee] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#344054] hover:border-[#ef1228]">
-                            <Paperclip className="h-3.5 w-3.5 text-[#ef1228]" />
+                          <a key={attachment.id} href={crmApi.mailboxAttachmentUrl(message.id, attachment.id)} target="_blank" rel="noreferrer" className="inline-flex max-w-full items-center gap-2 rounded-xl border border-border/60 bg-white px-2.5 py-1.5 text-xs font-semibold text-foreground hover:border-primary/40">
+                            <Paperclip className="h-3.5 w-3.5 text-primary" />
                             <span className="max-w-56 truncate">{attachment.name}</span>
                           </a>
                         ))}
@@ -947,26 +1115,26 @@ function BookingConversation({
                 );
               })}
               {queuedReplies.map((item) => (
-                <article key={item.id} className="ml-auto max-w-[82%] rounded-lg border border-[#d7e8fb] bg-[#eef7ff] p-4">
+                <article key={item.id} className="ml-auto max-w-[92%] rounded-2xl border border-blue-100 bg-blue-50/80 p-4 shadow-sm sm:max-w-[82%]">
                   <div className="mb-3 flex items-start justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-3">
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[#dfe5ee] bg-white text-xs font-black text-[#071527]">E</span>
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-white text-xs font-black text-foreground">E</span>
                       <div className="min-w-0">
                         <div className="truncate text-sm font-bold">E Electrics Ltd</div>
-                        <div className="text-xs text-[#667085]">{formatDateTime(item.createdAt)}</div>
+                        <div className="text-xs text-muted-foreground">{formatDateTime(item.createdAt)}</div>
                       </div>
                     </div>
-                    <span className={item.status === "sent" ? "inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700" : item.status === "failed" ? "rounded-full bg-[#fff1f3] px-2.5 py-1 text-xs font-bold text-[#ef1228]" : "inline-flex items-center gap-1 rounded-full bg-[#f3f6fa] px-2.5 py-1 text-xs font-bold text-[#667085]"}>
+                    <span className={item.status === "sent" ? "inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700" : item.status === "failed" ? "rounded-full bg-primary/10 px-2.5 py-1 text-xs font-bold text-primary" : "inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 text-xs font-bold text-muted-foreground"}>
                       {item.status === "sent" ? <CheckCircle2 className="h-3.5 w-3.5" /> : item.status === "sending" ? <Clock3 className="h-3.5 w-3.5" /> : null}
                       {item.status === "sent" ? "Sent" : item.status === "failed" ? "Failed" : "Queued"}
                     </span>
                   </div>
-                  <p className="whitespace-pre-wrap text-sm leading-6 text-[#344054]">{item.body}</p>
+                  <p className="whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{item.body}</p>
                   {item.fileNames.length ? (
                     <div className="mt-3 flex flex-wrap gap-2">
                       {item.fileNames.map((name) => (
-                        <span key={name} className="inline-flex max-w-full items-center gap-2 rounded-md border border-[#dfe5ee] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#344054]">
-                          <Paperclip className="h-3.5 w-3.5 text-[#ef1228]" />
+                        <span key={name} className="inline-flex max-w-full items-center gap-2 rounded-xl border border-border/60 bg-white px-2.5 py-1.5 text-xs font-semibold text-foreground">
+                          <Paperclip className="h-3.5 w-3.5 text-primary" />
                           <span className="max-w-56 truncate">{name}</span>
                         </span>
                       ))}
@@ -976,18 +1144,18 @@ function BookingConversation({
               ))}
               </>
             ) : (
-              <div className="rounded-lg border border-dashed border-[#d5dce7] bg-white p-8 text-center">
-                <Mail className="mx-auto mb-3 h-10 w-10 text-[#98a2b3]" />
-                <div className="text-sm font-bold text-[#101828]">No booking replies yet</div>
-                <p className="mt-1 text-xs text-[#667085]">When a customer replies to this booking email, the conversation will appear here.</p>
+              <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center">
+                <Mail className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
+                <div className="text-sm font-bold text-foreground">No booking replies yet</div>
+                <p className="mt-1 text-xs text-muted-foreground">When a customer replies to this booking email, the conversation will appear here.</p>
               </div>
             )}
           </div>
 
-          <div className="border-t border-[#e7ecf3] bg-white p-4">
-            <div className="mb-2 text-sm font-bold text-[#101828]">Reply</div>
+          <div className="shrink-0 border-t border-border/60 bg-card/95 p-3 shadow-[0_-12px_30px_rgba(15,23,42,0.06)] backdrop-blur-xl sm:p-4">
+            <div className="mb-2 text-sm font-bold text-foreground">Reply</div>
             <Textarea
-              className="min-h-24 resize-none border-[#d5dce7] bg-white text-sm text-[#101828] placeholder:text-[#98a2b3] focus:ring-[#ef1228]/20"
+              className="min-h-24 resize-none rounded-2xl border-border/70 bg-background text-sm text-foreground placeholder:text-muted-foreground focus-visible:ring-primary/20"
               placeholder={thread ? `Reply to ${displayName(doc.client) || "customer"}...` : "No linked email thread yet"}
               value={reply}
               onChange={(event) => setReply(event.target.value)}
@@ -996,8 +1164,8 @@ function BookingConversation({
             {replyFiles.length ? (
               <div className="mt-3 flex flex-wrap gap-2">
                 {replyFiles.map((file, index) => (
-                  <span key={`${file.name}-${index}`} className="inline-flex max-w-full items-center gap-2 rounded-md border border-[#dfe5ee] bg-[#f8fafc] px-2.5 py-1 text-xs text-[#344054]">
-                    <Paperclip className="h-3.5 w-3.5 shrink-0 text-[#ef1228]" />
+                  <span key={`${file.name}-${index}`} className="inline-flex max-w-full items-center gap-2 rounded-xl border border-border/60 bg-secondary/50 px-2.5 py-1 text-xs text-foreground">
+                    <Paperclip className="h-3.5 w-3.5 shrink-0 text-primary" />
                     <span className="max-w-48 truncate">{file.name}</span>
                     <button type="button" className="rounded p-0.5 hover:bg-white" onClick={() => setReplyFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))}>
                       x
@@ -1006,10 +1174,10 @@ function BookingConversation({
                 ))}
               </div>
             ) : null}
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap items-center gap-2">
+            <div className="mt-3 flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
+              <div className="grid gap-2 sm:flex sm:flex-wrap sm:items-center">
                 <select
-                  className="h-10 rounded-md border border-[#d5dce7] bg-white px-3 text-sm font-semibold text-[#101828] focus:outline-none focus:ring-2 focus:ring-[#ef1228]/20 disabled:text-[#98a2b3]"
+                  className="h-10 rounded-xl border border-border/70 bg-background px-3 text-sm font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:text-muted-foreground"
                   defaultValue=""
                   disabled={!thread}
                   onChange={(event) => {
@@ -1037,17 +1205,17 @@ function BookingConversation({
                     event.target.value = "";
                   }}
                 />
-                <label htmlFor={`booking-chat-files-${doc.id}`} className={thread ? "inline-flex h-10 cursor-pointer items-center gap-2 rounded-md border border-[#d5dce7] bg-white px-4 text-sm font-semibold text-[#101828] transition hover:bg-[#f8fafc]" : "inline-flex h-10 cursor-not-allowed items-center gap-2 rounded-md border border-[#d5dce7] bg-white px-4 text-sm font-semibold text-[#98a2b3]"}>
+                <label htmlFor={`booking-chat-files-${doc.id}`} className={thread ? "inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border border-border/70 bg-background px-4 text-sm font-semibold text-foreground transition hover:bg-secondary" : "inline-flex h-10 cursor-not-allowed items-center justify-center gap-2 rounded-xl border border-border/70 bg-background px-4 text-sm font-semibold text-muted-foreground"}>
                   <Paperclip className="h-4 w-4" />
                   Attach files
                 </label>
               </div>
-              <Button className="h-10 bg-[#ef1228] text-white hover:bg-[#d90f22]" onClick={onSendReply} disabled={!canReply}>
+              <Button className="h-10 w-full rounded-xl bg-gradient-to-r from-red-600 to-red-500 text-white shadow-sm hover:from-red-700 hover:to-red-600 lg:w-auto" onClick={onSendReply} disabled={!canReply}>
                 <Send className="h-4 w-4" />
                 {sendingReply ? "Queueing..." : "Send Reply"}
               </Button>
             </div>
-            <p className="mt-2 text-xs text-[#667085]">This reply will stay linked to {doc.documentNo}.</p>
+            <p className="mt-2 text-xs text-muted-foreground">This reply will stay linked to {doc.documentNo}.</p>
           </div>
         </div>
       </div>
@@ -1150,6 +1318,3 @@ function Info({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-
-
-

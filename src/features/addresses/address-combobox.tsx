@@ -60,14 +60,14 @@ export function AddressCombobox({ value, onChange, lookupQuery, lookupNonce, inp
         placeholder="Type address manually"
       />
       {open && query.length > 1 ? (
-        <div className="absolute z-[1000] mt-2 w-full overflow-hidden rounded-md border border-[#dfe5ee] bg-white text-[#101828] shadow-xl [color-scheme:light]">
-          {isFetching ? <div className="px-3 py-2 text-sm text-[#667085]">Loading addresses...</div> : null}
+        <div className="absolute z-[1000] mt-2 w-full overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-xl">
+          {isFetching ? <div className="px-3 py-2 text-sm text-muted-foreground">Loading addresses...</div> : null}
           {!isFetching && data.length > 0
             ? data.map((item) => (
                 <button
                   key={item.id}
                   type="button"
-                  className="block w-full px-3 py-2 text-left text-sm transition hover:bg-[#f3f6fa]"
+                  className="block w-full px-3 py-2 text-left text-sm transition hover:bg-secondary"
                   onClick={() => {
                     onChange(item.line, item);
                     setQuery(item.line);
@@ -76,12 +76,12 @@ export function AddressCombobox({ value, onChange, lookupQuery, lookupNonce, inp
                   }}
                 >
                   {item.label}
-                  <span className="ml-2 text-xs text-[#667085]">{item.source}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">{item.source}</span>
                 </button>
               ))
             : null}
           {!isFetching && showEmptyState && data.length === 0 ? (
-            <div className="px-3 py-2 text-sm text-[#667085]">No addresses found</div>
+            <div className="px-3 py-2 text-sm text-muted-foreground">No addresses found</div>
           ) : null}
         </div>
       ) : null}

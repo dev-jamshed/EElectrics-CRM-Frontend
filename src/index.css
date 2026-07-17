@@ -4,21 +4,23 @@
 
 @layer base {
   :root {
-    --background: 210 40% 98%;
-    --foreground: 222 47% 11%;
+    --background: 240 14% 97%;
+    --foreground: 240 10% 15%;
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-    --primary: 221 83% 53%;
+    --card-foreground: 240 10% 15%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 15%;
+    --primary: 355 88% 50%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 210 40% 94%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 210 40% 94%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 168 76% 42%;
+    --secondary: 240 6% 95%;
+    --secondary-foreground: 240 10% 15%;
+    --muted: 240 6% 93%;
+    --muted-foreground: 240 5% 45%;
+    --accent: 355 88% 50%;
     --accent-foreground: 0 0% 100%;
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 221 83% 53%;
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
+    --ring: 355 88% 50%;
   }
 
   .dark {
@@ -26,14 +28,16 @@
     --foreground: 210 40% 98%;
     --card: 222 47% 10%;
     --card-foreground: 210 40% 98%;
-    --primary: 217 91% 60%;
-    --primary-foreground: 222 47% 7%;
+    --popover: 222 47% 10%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 355 88% 58%;
+    --primary-foreground: 0 0% 100%;
     --secondary: 217 32% 16%;
     --secondary-foreground: 210 40% 98%;
     --muted: 217 32% 16%;
     --muted-foreground: 215 20% 65%;
-    --accent: 172 66% 50%;
-    --accent-foreground: 222 47% 7%;
+    --accent: 355 88% 58%;
+    --accent-foreground: 0 0% 100%;
     --border: 217 32% 18%;
     --input: 217 32% 18%;
     --ring: 217 91% 60%;
@@ -44,12 +48,22 @@
   }
 
   body {
-    @apply bg-background text-foreground antialiased;
+    @apply bg-background text-foreground antialiased overflow-x-hidden;
     letter-spacing: 0;
+  }
+}
+
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
   }
 }
 
 .page-enter {
   animation: slide-up 420ms cubic-bezier(.2,.8,.2,1);
 }
-

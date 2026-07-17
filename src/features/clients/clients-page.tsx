@@ -1,110 +1,113 @@
 import { useQuery } from "@tanstack/react-query";
-import { ArrowUpRight, Search, UserRound } from "lucide-react";
-import { useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { ArrowUpRight, Building2, CalendarDays, FileText, Mail, Phone, Receipt, UserRound } from "lucide-react";
+import { useMemo } from "react";
 import { Link } from "react-router-dom";
+import { DataTable } from "@/components/data-table";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { crmApi } from "@/lib/api";
 import { displayName } from "@/lib/utils";
 import type { Client } from "@/types/crm";
 
 export function ClientsPage() {
-  const [query, setQuery] = useState("");
   const { data = [], isLoading } = useQuery({ queryKey: ["clients"], queryFn: () => crmApi.clients() });
 
-  const filteredClients = useMemo(() => {
-    const value = query.trim().toLowerCase();
-    if (!value) return data;
-
-    return data.filter((client) =>
-      [
-        client.firstName,
-        client.lastName,
-        client.email,
-        client.phone,
-        client.company
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(value)
-    );
-  }, [data, query]);
+  const columns = useMemo<ColumnDef<Client>[]>(() => [
+    {
+      header: "Client",
+      accessorFn: (row) => displayName(row),
+      cell: ({ row }) => <ClientIdentity client={row.original} />
+    },
+    {
+      header: "Contact",
+      accessorFn: (row) => `${row.email ?? ""} ${row.phone ?? ""}`,
+      cell: ({ row }) => (
+        <div className="min-w-0 space-y-1.5">
+          {row.original.email ? (
+            <Link className="flex min-w-0 items-center gap-2 text-xs font-medium text-blue-600 hover:underline" to={`/clients/${row.original.id}`} title={row.original.email}>
+              <Mail className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{row.original.email}</span>
+            </Link>
+          ) : null}
+          <span className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+            <Phone className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">{row.original.phone || "No phone"}</span>
+          </span>
+        </div>
+      )
+    },
+    {
+      header: "Company",
+      accessorKey: "company",
+      cell: ({ row }) => (
+        <span className="inline-flex max-w-[150px] items-center gap-2 rounded-full border border-border/60 bg-secondary/60 px-3 py-1 text-xs font-semibold text-muted-foreground">
+          <Building2 className="h-3.5 w-3.5 shrink-0" />
+          <span className="truncate">{row.original.company || "Individual"}</span>
+        </span>
+      )
+    },
+    {
+      header: "Work",
+      accessorFn: (row) => String((row.totals?.bookings ?? 0) + (row.totals?.invoices ?? 0) + (row.totals?.quotations ?? 0)),
+      cell: ({ row }) => (
+        <div className="grid w-[132px] grid-cols-3 gap-1">
+          <MiniMetric icon={CalendarDays} value={row.original.totals?.bookings ?? 0} label="B" tone="blue" />
+          <MiniMetric icon={Receipt} value={row.original.totals?.invoices ?? 0} label="I" tone="green" />
+          <MiniMetric icon={FileText} value={row.original.totals?.quotations ?? 0} label="Q" tone="red" />
+        </div>
+      )
+    },
+    {
+      header: "Action",
+      id: "actions",
+      cell: ({ row }) => (
+        <Button asChild variant="outline" size="sm" className="rounded-xl border-primary/20 bg-primary/5 text-primary hover:bg-primary/10">
+          <Link to={`/clients/${row.original.id}`}>
+            View <ArrowUpRight className="h-4 w-4" />
+          </Link>
+        </Button>
+      )
+    }
+  ], []);
 
   return (
-    <div className="mx-auto max-w-[1540px] space-y-5 text-[#101828]">
+    <div className="mx-auto max-w-[1540px] space-y-5">
       <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
         <div>
-          <h1 className="text-[32px] font-bold tracking-[-0.03em]">Clients</h1>
-          <p className="text-sm text-[#53627a]">Manage customer contact details and open their work history.</p>
+          <h1 className="text-3xl font-semibold tracking-tight text-foreground">Clients</h1>
+          <p className="text-sm text-muted-foreground">Manage customer contact details and open their work history.</p>
         </div>
-        <Button asChild className="h-10 bg-[#ef1228] px-5 text-white hover:bg-[#d90f22]">
+        <Button asChild className="h-10 rounded-xl px-5 shadow-apple">
           <Link to="/documents/new/BOOKING">
             <UserRound className="h-4 w-4" /> Create Booking
           </Link>
         </Button>
       </div>
 
-      <section className="overflow-hidden rounded-lg border border-[#dfe5ee] bg-white shadow-sm">
-        <div className="flex flex-col gap-3 border-b border-[#edf1f6] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <section className="overflow-hidden rounded-2xl border border-border/50 bg-card/75 p-4 shadow-apple backdrop-blur-xl">
+        <div className="mb-4">
           <div>
-            <h2 className="text-base font-bold">Client Directory</h2>
-            <p className="text-xs text-[#667085]">Search by name, email or phone number.</p>
+            <h2 className="text-base font-semibold text-foreground">Client Directory</h2>
+            <p className="text-xs text-muted-foreground">Search by name, company, email or phone number.</p>
           </div>
-          <label className="relative w-full sm:ml-auto sm:w-[220px]">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#667085]" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              className="h-8 w-full rounded-md border border-[#d9e0ea] bg-white px-3 pl-9 text-xs outline-none transition placeholder:text-[#98a2b3] focus:border-[#ef1228] focus:ring-2 focus:ring-[#ef1228]/10"
-              placeholder="Search clients"
-            />
-          </label>
         </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] table-fixed text-left text-sm">
-            <thead className="bg-[#f8fafc] text-xs font-bold uppercase tracking-wide text-[#667085]">
-              <tr>
-                <th className="w-[36%] px-4 py-3">Client</th>
-                <th className="w-[34%] px-4 py-3">Email</th>
-                <th className="w-[20%] px-4 py-3">Phone</th>
-                <th className="w-[10%] px-4 py-3 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#edf1f6]">
-              {isLoading ? (
-                <tr>
-                  <td className="px-4 py-10 text-center text-[#667085]" colSpan={4}>Loading clients...</td>
-                </tr>
-              ) : filteredClients.length ? (
-                filteredClients.map((client) => (
-                  <tr key={client.id} className="transition hover:bg-[#fbfcfe]">
-                    <td className="px-4 py-5 align-middle">
-                      <ClientIdentity client={client} />
-                    </td>
-                    <td className="px-4 py-5 align-middle">
-                      {client.email ? (
-                        <a className="block truncate font-medium text-[#2563eb] hover:underline" href={`mailto:${client.email}`} title={client.email}>{client.email}</a>
-                      ) : (
-                        <span className="text-[#98a2b3]">-</span>
-                      )}
-                    </td>
-                    <td className="truncate px-4 py-5 align-middle text-[#53627a]" title={client.phone || undefined}>{client.phone || "-"}</td>
-                    <td className="px-4 py-5 text-right align-middle">
-                      <Link className="inline-flex items-center gap-1 font-semibold text-[#ef1228]" to={`/clients/${client.id}`}>
-                        Open <ArrowUpRight className="h-4 w-4" />
-                      </Link>
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td className="px-4 py-10 text-center text-[#667085]" colSpan={4}>No clients found.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        {isLoading ? (
+          <div className="py-12 text-center text-muted-foreground">Loading clients...</div>
+        ) : (
+          <DataTable
+            data={data}
+            columns={columns}
+            searchPlaceholder="Search clients"
+            getMobileTitle={(client) => displayName(client)}
+            getMobileDescription={(client) => [client.email, client.phone, client.company].filter(Boolean).join(" | ")}
+            getMobileMeta={(client) => <Badge className="rounded-full">{client.totals?.bookings ?? 0} jobs</Badge>}
+            getMobileHref={(client) => `/clients/${client.id}`}
+            emptyText="No clients found."
+            desktopAt="lg"
+            tableMinWidth="760px"
+          />
+        )}
       </section>
     </div>
   );
@@ -114,8 +117,47 @@ function ClientIdentity({ client }: { client: Client }) {
   const name = displayName(client);
 
   return (
-    <Link className="block max-w-[360px] truncate font-semibold text-[#101828] hover:text-[#ef1228]" to={`/clients/${client.id}`}>
-      {name}
+    <Link className="group flex min-w-0 items-center gap-3 font-semibold text-foreground hover:text-primary" to={`/clients/${client.id}`}>
+      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-primary/15 bg-[linear-gradient(135deg,hsl(var(--primary)/0.14),hsl(var(--card)))] text-sm font-bold text-primary shadow-sm transition group-hover:scale-[1.02]">
+        {initials(name)}
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate">{name}</span>
+        <span className="mt-0.5 block truncate text-xs font-medium text-muted-foreground">{client.company || client.email || "No contact added"}</span>
+      </span>
     </Link>
   );
+}
+
+function MiniMetric({
+  icon: Icon,
+  value,
+  label,
+  tone
+}: {
+  icon: typeof CalendarDays;
+  value: number;
+  label: string;
+  tone: "blue" | "green" | "red";
+}) {
+  const tones = {
+    blue: "bg-blue-500/10 text-blue-600",
+    green: "bg-emerald-500/10 text-emerald-600",
+    red: "bg-primary/10 text-primary"
+  };
+  return (
+    <span className={`inline-flex items-center justify-center gap-1 rounded-lg px-1.5 py-1.5 text-[11px] font-bold ${tones[tone]}`} title={label}>
+      <Icon className="h-3.5 w-3.5" />
+      {value}
+    </span>
+  );
+}
+
+function initials(value: string) {
+  return value
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "CL";
 }

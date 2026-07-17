@@ -167,6 +167,7 @@ export type MailboxThread = {
 
 export type MailboxSummary = {
   unreadCount: number;
+  inboxUnreadCount?: number;
   latest?: MailboxThread | null;
   folderCounts?: Record<string, number>;
 };
