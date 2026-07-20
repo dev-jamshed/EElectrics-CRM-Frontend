@@ -208,24 +208,17 @@ function SummaryMetric({ icon: Icon, label, value, tone = "red" }: { icon: typeo
 function latestActivity(record: DocumentRecord): LatestActivity {
   const paid = record.paymentStatus === "PAID" || record.status === "PAID";
   const confirmed = Boolean(record.bookingConfirmed) || record.status === "CONFIRMED";
-  const currentKind: ActivityKind = paid
-    ? "PAID"
-    : confirmed
-      ? "CONFIRMED"
-      : record.status === "CANCELLED"
-        ? "CANCELLED"
-        : record.status === "SENT" || record.emailStatus === "SENT"
-          ? "SENT"
-          : record.status === "DRAFT"
-            ? "SAVED"
-            : "CREATED";
-  const candidates: LatestActivity[] = [
-    activityFor(currentKind, record.updatedAt || record.createdAt),
-    activityFor("CREATED", record.createdAt)
-  ];
+  const candidates: LatestActivity[] = [activityFor("CREATED", record.createdAt)];
+
+  if (record.status === "DRAFT") candidates.push(activityFor("SAVED", record.updatedAt || record.createdAt));
+  if (record.status === "CANCELLED") candidates.push(activityFor("CANCELLED", record.updatedAt || record.createdAt));
   if (record.sentAt) candidates.push(activityFor("SENT", record.sentAt));
+  else if (record.status === "SENT" || record.emailStatus === "SENT") candidates.push(activityFor("SENT", record.updatedAt || record.createdAt));
   if (record.confirmedAt) candidates.push(activityFor("CONFIRMED", record.confirmedAt));
+  else if (confirmed) candidates.push(activityFor("CONFIRMED", record.updatedAt || record.createdAt));
   if (record.paidAt) candidates.push(activityFor("PAID", record.paidAt));
+  else if (paid) candidates.push(activityFor("PAID", record.updatedAt || record.createdAt));
+
   return candidates.sort((left, right) => timestamp(right.at) - timestamp(left.at))[0];
 }
 
