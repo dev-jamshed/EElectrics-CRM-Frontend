@@ -57,7 +57,6 @@ export type DocumentRecord = {
   rootDocumentId?: string;
   revisionNo: number;
   issueDate?: string;
-  dueDate?: string;
   bookingDate?: string;
   bookingConfirmed?: boolean;
   confirmedAt?: string;

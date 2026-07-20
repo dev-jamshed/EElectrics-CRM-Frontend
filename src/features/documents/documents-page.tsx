@@ -9,7 +9,7 @@ import { DataTable } from "@/components/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { crmApi } from "@/lib/api";
-import { currency, displayName, documentDisplayTitle, documentTypeLabel, hasDocumentRevisionActivity, plainTextFromHtml } from "@/lib/utils";
+import { currency, displayName, documentTypeLabel, hasDocumentRevisionActivity, plainTextFromHtml } from "@/lib/utils";
 import type { DocumentRecord, DocumentType } from "@/types/crm";
 
 export function DocumentsPage() {
@@ -90,7 +90,7 @@ export function DocumentsPage() {
       accessorKey: "documentNo",
       cell: ({ row }) => (
         <Link className="font-medium text-primary hover:underline" to={`/documents/${row.original.id}`}>
-          {documentDisplayTitle(row.original)}
+          {row.original.documentNo}
         </Link>
       )
     },
@@ -123,12 +123,12 @@ export function DocumentsPage() {
     {
       id: "recordDate",
       header: "Date",
-      accessorFn: (row) => row.bookingDate || row.dueDate || row.issueDate || row.createdAt,
+      accessorFn: (row) => row.bookingDate || row.issueDate || row.createdAt,
       filterFn: "dateRange",
       cell: ({ row }) => (
         <span className="inline-flex items-center gap-2 text-muted-foreground">
           <CalendarDays className="h-4 w-4" />
-          {formatDate(row.original.bookingDate || row.original.dueDate || row.original.issueDate || row.original.createdAt)}
+          {formatDate(row.original.bookingDate || row.original.issueDate || row.original.createdAt)}
         </span>
       )
     },
@@ -193,7 +193,7 @@ export function DocumentsPage() {
             searchPlaceholder="Search records"
             dateFilter={{
               label: "Filter by date",
-              getValue: (record) => record.bookingDate || record.dueDate || record.issueDate || record.createdAt
+              getValue: (record) => record.bookingDate || record.issueDate || record.createdAt
             }}
             filters={[
               ...(type ? [] : [{ id: "type", label: "All types", options: [
@@ -213,9 +213,14 @@ export function DocumentsPage() {
                 { label: "Unpaid", value: "UNPAID" }
               ] }] : [])
             ]}
-            getMobileTitle={(record) => documentDisplayTitle(record)}
+            getMobileTitle={(record) => record.documentNo}
             getMobileDescription={(record) => `${displayName(record.client)} | ${plainTextFromHtml(record.jobTitle) || record.documentNo}`}
-            getMobileMeta={(record) => <Badge className="rounded-full">{documentTypeLabel(record.type)}</Badge>}
+            getMobileMeta={(record) => (
+              <div className="flex flex-wrap items-center gap-1">
+                <Badge className="rounded-full">{documentTypeLabel(record.type)}</Badge>
+                {hasDocumentRevisionActivity(record) ? <Badge className="rounded-full bg-primary/10 text-primary">Rev {record.revisionNo}</Badge> : null}
+              </div>
+            )}
             getMobileHref={(record) => `/documents/${record.id}`}
             getMobileActions={(record) => (
               <Button type="button" size="sm" variant="ghost" className="h-9 rounded-xl px-3 text-primary hover:bg-primary/10" onClick={() => setPendingDeleteId(record.id)}>

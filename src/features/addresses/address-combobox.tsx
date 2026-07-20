@@ -50,6 +50,12 @@ export function AddressCombobox({ value, onChange, lookupQuery, lookupNonce, inp
         onFocus={() => {
           if (query.length > 1) setOpen(true);
         }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            setOpen(false);
+            setShowEmptyState(false);
+          }
+        }}
         onChange={(event) => {
           const nextValue = event.target.value;
           setQuery(nextValue);
@@ -60,14 +66,15 @@ export function AddressCombobox({ value, onChange, lookupQuery, lookupNonce, inp
         placeholder="Type address manually"
       />
       {open && query.length > 1 ? (
-        <div className="absolute z-[1000] mt-2 w-full overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-xl">
+        <div className="relative z-20 mt-2 max-h-60 w-full overflow-x-hidden overflow-y-auto overscroll-contain rounded-lg border border-border bg-popover text-popover-foreground shadow-lg" role="listbox" aria-label="Address suggestions">
           {isFetching ? <div className="px-3 py-2 text-sm text-muted-foreground">Loading addresses...</div> : null}
           {!isFetching && data.length > 0
             ? data.map((item) => (
                 <button
                   key={item.id}
                   type="button"
-                  className="block w-full px-3 py-2 text-left text-sm transition hover:bg-secondary"
+                  role="option"
+                  className="flex min-w-0 w-full items-start justify-between gap-3 border-b border-border/50 px-3 py-2.5 text-left text-sm transition last:border-b-0 hover:bg-secondary focus:bg-secondary focus:outline-none"
                   onClick={() => {
                     onChange(item.line, item);
                     setQuery(item.line);
@@ -75,8 +82,8 @@ export function AddressCombobox({ value, onChange, lookupQuery, lookupNonce, inp
                     setOpen(false);
                   }}
                 >
-                  {item.label}
-                  <span className="ml-2 text-xs text-muted-foreground">{item.source}</span>
+                  <span className="min-w-0 break-words font-medium">{item.label}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">{item.source}</span>
                 </button>
               ))
             : null}

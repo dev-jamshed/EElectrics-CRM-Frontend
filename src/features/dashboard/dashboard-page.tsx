@@ -241,7 +241,7 @@ export function DashboardPage() {
                         <td className="px-6 py-4">
                           <StatusPill doc={doc} />
                         </td>
-                        <td className="px-6 py-4 text-muted-foreground">{formatDate(doc.dueDate || doc.bookingDate || doc.issueDate || doc.updatedAt)}</td>
+                        <td className="px-6 py-4 text-muted-foreground">{formatDate(doc.bookingDate || doc.issueDate || doc.updatedAt)}</td>
                         <td className="px-6 py-4 text-right">
                           <Button variant="ghost" size="sm" asChild className="h-8 w-8 rounded-full p-0 text-muted-foreground hover:bg-card hover:text-primary hover:shadow-sm">
                             <Link to={`/documents/${doc.id}`}>
@@ -866,10 +866,8 @@ function formatDate(value?: string) {
 }
 
 function actionDate(doc: DocumentRecord) {
-  if (doc.type === "BOOKING") return doc.bookingDate || doc.dueDate || doc.issueDate || doc.updatedAt;
-  if (doc.type === "INVOICE") return doc.dueDate || doc.issueDate || doc.updatedAt;
-  if (doc.type === "QUOTATION") return doc.dueDate || doc.issueDate || doc.updatedAt;
-  return doc.dueDate || doc.bookingDate || doc.issueDate || doc.updatedAt;
+  if (doc.type === "BOOKING") return doc.bookingDate || doc.issueDate || doc.updatedAt;
+  return doc.issueDate || doc.updatedAt;
 }
 
 function dateTime(value?: string) {
@@ -898,7 +896,7 @@ function periodRange(period: Exclude<DashboardPeriod, "custom">): DateRange {
 }
 
 function docDate(doc: DocumentRecord) {
-  return doc.bookingDate || doc.dueDate || doc.issueDate || doc.createdAt || doc.updatedAt;
+  return doc.bookingDate || doc.issueDate || doc.createdAt || doc.updatedAt;
 }
 
 function inRange(value: string | undefined, range: DateRange) {

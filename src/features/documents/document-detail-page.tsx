@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock3,
+  Copy,
   CopyPlus,
   Edit,
   ExternalLink,
@@ -304,7 +305,6 @@ function ModernBillingDetail({
   const total = Number(doc.total || 0);
   const subtotal = doc.lineItems?.length ? doc.lineItems.reduce((sum, item) => sum + Number(item.total || 0), 0) : total;
   const issueDate = doc.issueDate || doc.createdAt;
-  const dueDate = doc.dueDate;
 
   return (
     <div className="mx-auto max-w-[1540px] space-y-4 text-foreground sm:space-y-5">
@@ -335,6 +335,12 @@ function ModernBillingDetail({
           <Button variant="outline" className="h-10 w-auto shrink-0 rounded-xl border-border/70 bg-background/80 px-4 font-semibold text-foreground hover:bg-secondary sm:h-11 sm:w-full sm:px-5 xl:w-auto" onClick={onClone} loading={cloning}>
             <CopyPlus className="h-4 w-4" />
             New Revision
+          </Button>
+          <Button asChild variant="outline" className="h-10 w-auto shrink-0 rounded-xl border-border/70 bg-background/80 px-4 font-semibold text-foreground hover:bg-secondary sm:h-11 sm:w-full sm:px-5 xl:w-auto">
+            <Link to={`/documents/new/${doc.type}?cloneFrom=${encodeURIComponent(doc.id)}`}>
+              <Copy className="h-4 w-4" />
+              Clone as New
+            </Link>
           </Button>
           <Button asChild className="h-10 w-auto shrink-0 rounded-xl px-4 font-semibold shadow-sm sm:h-11 sm:w-full sm:px-5 xl:w-auto">
             <Link to={`/documents/${doc.id}/edit`}>
@@ -370,7 +376,6 @@ function ModernBillingDetail({
             <h2 className="mb-4 text-lg font-bold">{noun} Details</h2>
             <div className="grid min-w-0 gap-3 sm:grid-cols-2">
               <BillingInfo icon={UserRound} label="Client" value={displayName(doc.client)} />
-              <BillingInfo icon={CalendarDays} label="Due Date" value={formatDate(dueDate)} />
               <BillingInfo icon={Mail} label="Email" value={doc.client?.email ?? "-"} onAction={doc.client?.email ? onComposeEmail : undefined} />
               <BillingInfo icon={FileText} label="Job Description" value={plainTextFromHtml(doc.jobTitle) || "-"} />
               <BillingInfo icon={Phone} label="Phone" value={doc.phoneNo ?? doc.client?.phone ?? "-"} />
@@ -472,9 +477,9 @@ function ModernBillingDetail({
         </div>
 
         <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
-          <BillingPreviewPanel doc={doc} noun={noun} paid={paid} subtotal={subtotal} total={total} issueDate={issueDate} dueDate={dueDate} />
+          <BillingPreviewPanel doc={doc} noun={noun} paid={paid} subtotal={subtotal} total={total} issueDate={issueDate} />
           <ConnectedRecordsPanel doc={doc} connectedRecords={connectedRecords} showClient />
-          <BillingTimeline doc={doc} paid={paid} />
+          <DocumentStatusTimeline doc={doc} />
         </aside>
       </div>
     </div>
@@ -521,8 +526,7 @@ function BillingPreviewPanel({
   paid,
   subtotal,
   total,
-  issueDate,
-  dueDate
+  issueDate
 }: {
   doc: DocumentRecord;
   noun: string;
@@ -530,7 +534,6 @@ function BillingPreviewPanel({
   subtotal: number;
   total: number;
   issueDate?: string;
-  dueDate?: string;
 }) {
   return (
     <section className="rounded-2xl border border-border/50 bg-card/75 p-5 shadow-apple backdrop-blur-xl">
@@ -545,7 +548,6 @@ function BillingPreviewPanel({
             <div className="text-3xl font-black uppercase text-[#ef1228]">{noun}</div>
             <PreviewMeta label={`${noun} #:`} value={doc.documentNo} />
             <PreviewMeta label="Issue Date:" value={formatDate(issueDate)} />
-            <PreviewMeta label="Due Date:" value={formatDate(dueDate)} />
             {doc.type === "INVOICE" ? <span className={paid ? "mt-2 inline-flex rounded bg-[#16a34a] px-2 py-1 text-xs font-bold text-white" : "mt-2 inline-flex rounded bg-[#ef1228] px-2 py-1 text-xs font-bold text-white"}>{paid ? "Paid" : "Unpaid"}</span> : null}
           </div>
         </div>
@@ -717,34 +719,43 @@ function connectedRecordTimestamp(record: DocumentRecord) {
   return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
-function BillingTimeline({ doc, paid }: { doc: DocumentRecord; paid: boolean }) {
-  const noun = doc.type === "QUOTATION" ? "Quotation" : "Invoice";
+function DocumentStatusTimeline({ doc }: { doc: DocumentRecord }) {
+  const noun = doc.type === "BOOKING" ? "Booking" : doc.type === "QUOTATION" ? "Quotation" : "Invoice";
+  const emailFailed = doc.emailStatus === "FAILED";
+  const emailComplete = doc.emailStatus === "SENT" || emailFailed || Boolean(doc.sentAt);
+  const emailValue = doc.emailError || (doc.sentAt ? formatDateTime(doc.sentAt) : emailComplete && doc.emailStatus ? titleCase(doc.emailStatus) : "Waiting to send");
+  const paid = doc.paymentStatus === "PAID" || doc.status === "PAID";
+  const paymentValue = paid
+    ? doc.paidAt
+      ? `Paid on ${formatDateTime(doc.paidAt)}`
+      : "Paid"
+    : doc.paymentStatus === "NOT_PAID" || !doc.paymentStatus
+      ? "Unpaid"
+      : titleCase(doc.paymentStatus.replace(/_/g, " "));
+
   return (
-    <section className="rounded-2xl border border-border/50 bg-card/75 p-5 shadow-apple backdrop-blur-xl">
-      <h2 className="mb-4 flex items-center gap-2 text-lg font-bold">
-        <CalendarDays className="h-5 w-5 text-primary" />
-        Activity Timeline
-      </h2>
-      <div className="space-y-4">
-        <TimelineLine icon={Receipt} title={`${noun} created`} detail={`Admin User - ${formatDateTime(doc.createdAt)}`} active />
-        <TimelineLine icon={Mail} title={doc.emailStatus === "SENT" ? `${noun} email sent` : `${noun} marked as ${titleCase(doc.status)}`} detail={`Admin User - ${formatDateTime(doc.sentAt || doc.updatedAt)}`} />
-        {paid ? <TimelineLine icon={Wallet} title="Payment received" detail={formatDateTime(doc.paidAt || doc.updatedAt)} success /> : null}
+    <section className="rounded-[24px] border border-border/60 bg-card/85 p-4 shadow-apple backdrop-blur-xl sm:p-5">
+      <h2 className="text-lg font-bold">{noun} Status</h2>
+      <div className="mt-5 space-y-4">
+        <TimelineItem done label="Created" value={formatDateTime(doc.createdAt)} />
+        <TimelineItem
+          done={emailComplete}
+          label={emailFailed ? "Email Failed" : "Email Sent"}
+          value={emailValue}
+          danger={emailFailed}
+        />
+        {doc.type === "BOOKING" ? (
+          <TimelineItem
+            done={Boolean(doc.bookingConfirmed)}
+            label="Customer Confirmed"
+            value={doc.confirmedAt ? formatDateTime(doc.confirmedAt) : "Not confirmed"}
+            last
+          />
+        ) : (
+          <TimelineItem done={paid} label="Payment Status" value={paymentValue} last />
+        )}
       </div>
     </section>
-  );
-}
-
-function TimelineLine({ icon: Icon, title, detail, active, success }: { icon: LucideIcon; title: string; detail: string; active?: boolean; success?: boolean }) {
-  return (
-    <div className="flex gap-3">
-      <div className={success ? "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600" : active ? "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground" : "flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-secondary text-secondary-foreground"}>
-        <Icon className="h-4 w-4" />
-      </div>
-      <div className="min-w-0">
-        <div className="text-sm font-bold">{title}</div>
-        <div className="mt-1 text-xs text-muted-foreground">{detail}</div>
-      </div>
-    </div>
   );
 }
 
@@ -853,6 +864,12 @@ function ModernBookingDetail({
               <CopyPlus className="h-4 w-4" />
               New Revision
             </Button>
+            <Button asChild variant="outline" className="h-10 w-auto shrink-0 justify-center rounded-xl border-border/70 bg-background/80 px-4 text-foreground hover:bg-secondary sm:w-full xl:w-auto">
+              <Link to={`/documents/new/${doc.type}?cloneFrom=${encodeURIComponent(doc.id)}`}>
+                <Copy className="h-4 w-4" />
+                Clone as New
+              </Link>
+            </Button>
             <Button
               variant="outline"
               className="h-10 w-auto shrink-0 justify-center rounded-xl border-border/70 bg-background/80 px-4 text-foreground hover:bg-secondary sm:w-full xl:w-auto"
@@ -930,15 +947,7 @@ function ModernBookingDetail({
         </div>
 
         <aside className="space-y-4">
-          <section className="rounded-[24px] border border-border/60 bg-card/85 p-4 shadow-apple backdrop-blur-xl sm:p-5">
-            <h2 className="text-lg font-bold">Booking Status</h2>
-            <div className="mt-5 space-y-4">
-              <TimelineItem done label="Created" value={createdDate} />
-              <TimelineItem done={doc.emailStatus === "SENT" || doc.emailStatus === "FAILED" || Boolean(doc.sentAt)} label={doc.emailStatus === "FAILED" ? "Email Failed" : "Email Sent"} value={doc.emailError || (doc.sentAt ? formatDateTime(doc.sentAt) : doc.emailStatus || "Waiting")} danger={doc.emailStatus === "FAILED"} />
-              <TimelineItem done={Boolean(doc.bookingConfirmed)} label="Customer Confirmed" value={doc.confirmedAt ? formatDateTime(doc.confirmedAt) : confirmedLabel} />
-              <TimelineItem done label="PDF Generated" value="Available to view or download" />
-            </div>
-          </section>
+          <DocumentStatusTimeline doc={doc} />
 
           <ConnectedRecordsPanel doc={doc} connectedRecords={connectedRecords} />
         </aside>
@@ -989,16 +998,16 @@ function TextPanel({ title, value }: { title: string; value: string }) {
   );
 }
 
-function TimelineItem({ done, label, value, danger }: { done: boolean; label: string; value: string; danger?: boolean }) {
+function TimelineItem({ done, label, value, danger, last = false }: { done: boolean; label: string; value: string; danger?: boolean; last?: boolean }) {
   return (
     <div className="flex gap-3">
       <div className="flex flex-col items-center">
         <span className={cnStatusDot(done, danger)}>
           {done ? <CheckCircle2 className="h-4 w-4" /> : <Clock3 className="h-4 w-4" />}
         </span>
-        <span className="mt-1 h-8 w-px bg-[#e7ecf3]" />
+        {!last ? <span className="mt-1 h-8 w-px bg-border" /> : null}
       </div>
-      <div className="min-w-0 pb-3">
+      <div className={last ? "min-w-0" : "min-w-0 pb-3"}>
         <div className="text-sm font-bold">{label}</div>
         <div className="mt-1 break-words text-xs text-muted-foreground">{value}</div>
       </div>

@@ -42,10 +42,10 @@ import {
 } from "lucide-react";
 import { AddressCombobox } from "@/features/addresses/address-combobox";
 import { crmApi } from "@/lib/api";
-import { appendSnippetText, readMailSnippets } from "@/lib/mail-snippets";
+import { readMailSnippets } from "@/lib/mail-snippets";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input, Textarea } from "@/components/ui/input";
 import type { Attachment, Client, DocumentRecord, DocumentType, LineItem } from "@/types/crm";
 
@@ -416,6 +416,12 @@ function richText(value: string) {
   return escapeHtml(withoutHandlers).replace(/\r?\n/g, "<br />");
 }
 
+function appendRichSnippet(current: string, snippet: string) {
+  const currentHtml = String(current ?? "").trim();
+  const snippetHtml = richText(snippet);
+  return [currentHtml, snippetHtml].filter(Boolean).join(currentHtml ? "<p><br></p>" : "");
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -480,20 +486,43 @@ function invoiceBodyFromItems(notes: string, items: LineItem[]) {
   return [itemHtml, richText(notes)].filter(Boolean).join("");
 }
 
+function editableBillingDescription(description: string | undefined, items: LineItem[]) {
+  const itemSummary = invoiceBodyFromItems("", items);
+  let editableDescription = String(description ?? "");
+
+  while (itemSummary && editableDescription.startsWith(itemSummary)) {
+    editableDescription = editableDescription.slice(itemSummary.length);
+  }
+
+  return editableDescription;
+}
+
 function clientDisplayName(firstName: string, lastName: string) {
   return [firstName, lastName].filter(Boolean).join(" ") || "-";
+}
+
+function currentDateInputValue() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 export function DocumentFormPage() {
   const { id, type } = useParams();
   const [searchParams] = useSearchParams();
   const sourceDocumentId = searchParams.get("sourceDocumentId") ?? undefined;
+  const cloneDocumentId = searchParams.get("cloneFrom") ?? undefined;
+  const prefillDocumentId = cloneDocumentId ?? sourceDocumentId;
   const clientIdParam = searchParams.get("clientId") ?? undefined;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const isEdit = Boolean(id);
+  const isClone = Boolean(cloneDocumentId && !isEdit);
   const documentType = (type as DocumentType | undefined) ?? "INVOICE";
   const isBillingRoute = documentType === "INVOICE" || documentType === "QUOTATION";
+  const currentDate = currentDateInputValue();
 
   const { data: existing } = useQuery({
     queryKey: ["document", id],
@@ -501,14 +530,14 @@ export function DocumentFormPage() {
     enabled: isEdit
   });
   const { data: source } = useQuery({
-    queryKey: ["document", sourceDocumentId],
-    queryFn: () => crmApi.document(sourceDocumentId!),
-    enabled: Boolean(sourceDocumentId)
+    queryKey: ["document", prefillDocumentId],
+    queryFn: () => crmApi.document(prefillDocumentId!),
+    enabled: Boolean(prefillDocumentId)
   });
   const { data: selectedClient } = useQuery({
     queryKey: ["client", clientIdParam],
     queryFn: () => crmApi.client(clientIdParam!),
-    enabled: Boolean(clientIdParam && !isEdit && !sourceDocumentId)
+    enabled: Boolean(clientIdParam && !isEdit && !prefillDocumentId)
   });
   const { data: clients = [] } = useQuery({
     queryKey: ["clients", "invoice-form"],
@@ -517,11 +546,10 @@ export function DocumentFormPage() {
   });
 
   const seed = useMemo<DocumentRecord | undefined>(() => existing ?? source, [existing, source]);
-  const copyDocumentText = !isEdit && Boolean(source);
+  const copyDocumentText = !isEdit && Boolean(source) && !isClone;
   const [addressLookup, setAddressLookup] = useState({ query: "", nonce: 0 });
   const submitLockedRef = useRef(false);
   const [invoiceNotesOpen, setInvoiceNotesOpen] = useState(true);
-  const [invoicePreviewMode, setInvoicePreviewMode] = useState<"desktop" | "mobile">("desktop");
   const [previewHtml, setPreviewHtml] = useState<{ title: string; html: string } | null>(null);
 
   const [form, setForm] = useState({
@@ -541,8 +569,7 @@ export function DocumentFormPage() {
     description: "",
     greeting: "",
     emailNote: documentType === "BOOKING" || isBillingRoute ? defaultInvoiceNote : "",
-    issueDate: new Date().toISOString().slice(0, 10),
-    dueDate: "",
+    issueDate: currentDate,
     bookingDate: "",
     price: "",
     labourDescription: "",
@@ -570,6 +597,30 @@ export function DocumentFormPage() {
   const billingNoun = form.type === "QUOTATION" ? "Quotation" : "Invoice";
 
   useEffect(() => {
+    if (isEdit || prefillDocumentId) return;
+    setForm((current) => {
+      if (current.type === documentType) return current;
+      const nextIsBillingDocument = documentType === "INVOICE" || documentType === "QUOTATION";
+      return {
+        ...current,
+        type: documentType,
+        status: "DRAFT",
+        description: "",
+        greeting: "",
+        emailNote: documentType === "BOOKING" || nextIsBillingDocument ? defaultInvoiceNote : "",
+        bookingDate: "",
+        price: "",
+        labourDescription: "",
+        labourPrice: "",
+        materialDescription: "",
+        materialPrice: "",
+        includeOptions: [],
+        lineItems: nextIsBillingDocument ? defaultInvoiceRows.map(normalizeLineItem) : []
+      };
+    });
+  }, [documentType, isEdit, prefillDocumentId]);
+
+  useEffect(() => {
     if (!seed) return;
     setForm((current) => ({
       ...current,
@@ -586,12 +637,11 @@ export function DocumentFormPage() {
       extraAddress: seed.extraAddress ?? "",
       selectedAddress: parseSelectedAddress(seed.selectedAddress),
       jobTitle: seed.jobTitle ?? "",
-      description: copyDocumentText ? "" : seed.description ?? "",
+      description: copyDocumentText ? "" : isBillingRoute ? editableBillingDescription(seed.description, seed.lineItems ?? []) : seed.description ?? "",
       greeting: copyDocumentText ? "" : seed.greeting ?? "",
       emailNote: copyDocumentText ? defaultInvoiceNote : seed.emailNote ?? (isBillingRoute ? defaultInvoiceNote : ""),
-      issueDate: seed.issueDate?.slice(0, 10) ?? current.issueDate,
-      dueDate: seed.dueDate?.slice(0, 10) ?? "",
-      bookingDate: seed.bookingDate?.slice(0, 10) ?? "",
+      issueDate: isClone ? currentDate : seed.issueDate?.slice(0, 10) ?? current.issueDate,
+      bookingDate: isClone ? currentDate : seed.bookingDate?.slice(0, 10) ?? "",
       price: seed.price ? String(seed.price) : seed.total ? String(seed.total) : "",
       labourDescription: seed.lineItems?.find((item) => item.kind === "LABOUR")?.description ?? "",
       labourPrice: seed.lineItems?.find((item) => item.kind === "LABOUR")?.unitPrice ? String(seed.lineItems.find((item) => item.kind === "LABOUR")?.unitPrice) : "",
@@ -599,18 +649,18 @@ export function DocumentFormPage() {
       materialPrice: seed.lineItems?.find((item) => item.kind === "MATERIAL")?.unitPrice ? String(seed.lineItems.find((item) => item.kind === "MATERIAL")?.unitPrice) : "",
       includeOptions: parseInclude(seed.includeOptions),
       sendMail: isEdit ? seed.sendMail ?? true : true,
-      sendImages: isEdit ? seed.sendImages ?? false : false,
-      invoiceCheck: isEdit ? seed.invoiceCheck ?? false : false,
+      sendImages: isEdit || isClone ? seed.sendImages ?? false : false,
+      invoiceCheck: isEdit || isClone ? seed.invoiceCheck ?? false : false,
       emailSubject: copyDocumentText ? "" : seed.emailSubject ?? "",
       emailBody: copyDocumentText ? "" : seed.emailBody ?? "",
       pdfNotes: copyDocumentText ? "" : seed.pdfNotes ?? "",
       attachments: copyDocumentText ? [] : seed.attachments ?? [],
       lineItems: seed.lineItems?.length ? seed.lineItems.map(normalizeLineItem) : current.lineItems
     }));
-  }, [seed, isEdit, documentType, copyDocumentText]);
+  }, [seed, isEdit, isClone, documentType, isBillingRoute, copyDocumentText, currentDate]);
 
   useEffect(() => {
-    if (!selectedClient || isEdit || sourceDocumentId) return;
+    if (!selectedClient || isEdit || prefillDocumentId) return;
     const recentDocument = selectedClient.documents?.find((item) => item.addressLine || item.extraAddress || item.postalCode);
     setForm((current) => ({
       ...current,
@@ -623,7 +673,7 @@ export function DocumentFormPage() {
       addressLine: recentDocument?.addressLine ?? current.addressLine,
       extraAddress: recentDocument?.extraAddress ?? current.extraAddress
     }));
-  }, [selectedClient, isEdit, sourceDocumentId]);
+  }, [selectedClient, isEdit, prefillDocumentId]);
 
   const handleImages = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? []);
@@ -759,14 +809,6 @@ export function DocumentFormPage() {
     setPreviewHtml({ title: `${billingNoun} Preview`, html });
   };
 
-  const downloadPdf = () => {
-    if (isEdit && existing?.id) {
-      window.open(crmApi.pdfDownloadUrl(existing.id), "_blank");
-      return;
-    }
-    toast.error("Save draft first, then download PDF");
-  };
-
   const mutation = useMutation({
     mutationFn: (overrides?: { sendMail?: boolean; status?: string }) => {
       if (!validateInclude()) throw new Error("Validation failed");
@@ -780,8 +822,9 @@ export function DocumentFormPage() {
           email: form.email,
           phone: form.phone
         },
-        caseFileId: isEdit ? existing?.caseFileId : source?.caseFileId,
-        sourceDocumentId,
+        caseFileId: isClone ? undefined : isEdit ? existing?.caseFileId : source?.caseFileId,
+        sourceDocumentId: isClone ? undefined : sourceDocumentId,
+        createAsClone: isClone || undefined,
         jobTitle: form.jobTitle,
         description: isBillingDocument ? invoiceBodyFromItems(form.description, selectedLineItems) : form.description,
         greeting: form.greeting,
@@ -793,7 +836,6 @@ export function DocumentFormPage() {
         extraAddress: form.extraAddress,
         selectedAddress: form.selectedAddress,
         issueDate: form.type === "BOOKING" ? undefined : form.issueDate || undefined,
-        dueDate: form.dueDate || undefined,
         bookingDate: form.type === "BOOKING" ? form.bookingDate || form.issueDate || undefined : undefined,
         price: documentAmount,
         includeOptions: computedIncludeOptions,
@@ -931,6 +973,7 @@ export function DocumentFormPage() {
   const previewModal = (
     <PreviewHtmlDialog
       preview={previewHtml}
+      downloadUrl={isEdit && existing?.id ? crmApi.pdfDownloadUrl(existing.id) : undefined}
       onOpenChange={(open) => {
         if (!open) setPreviewHtml(null);
       }}
@@ -939,13 +982,15 @@ export function DocumentFormPage() {
 
   if (isBillingDocument) {
     const subtotal = form.lineItems.reduce((sum, item) => sum + lineItemTotal(item), 0);
-    const normalizedRows = form.lineItems.map(normalizeLineItem);
 
     return (
       <div className="mx-auto w-full min-w-0 max-w-[1680px] space-y-3 text-foreground">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h1 className="text-2xl font-bold tracking-tight sm:text-[28px]">{isEdit ? `Edit ${billingNoun}` : `New ${billingNoun}`}</h1>
+          <h1 className="text-2xl font-bold tracking-tight sm:text-[28px]">{isEdit ? `Edit ${billingNoun}` : isClone ? `Clone as New ${billingNoun}` : `New ${billingNoun}`}</h1>
           <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" className="h-10 rounded-xl border-border/70 bg-card px-4 text-foreground hover:bg-secondary" onClick={previewPdf}>
+              <FileText className="h-4 w-4" /> Preview
+            </Button>
             <Button type="button" variant="outline" className="h-10 rounded-xl border-border/70 bg-card px-5 text-foreground hover:bg-secondary" onClick={() => submitDocument({ sendMail: false, status: "DRAFT" })} loading={mutation.isPending}>
               <Save className="h-4 w-4" /> Save Draft
             </Button>
@@ -979,64 +1024,72 @@ export function DocumentFormPage() {
           </div>
         </div>
 
-        <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(440px,0.9fr)] 2xl:grid-cols-[minmax(0,0.96fr)_minmax(520px,1.04fr)]">
+        <div className="mx-auto min-w-0 max-w-6xl">
           <div className="min-w-0 space-y-3">
             <div className="rounded-2xl border border-border/50 bg-card/75 p-4 shadow-sm backdrop-blur-xl sm:p-5">
               <h2 className="mb-4 text-base font-bold">Client & {billingNoun} Details</h2>
-              <div className="grid gap-x-5 gap-y-4 md:grid-cols-2">
-                <label className="space-y-2">
-                  <span className={fieldLabelClass}>Client</span>
-                  <InvoiceClientPicker
-                    clients={clients}
-                    value={clientDisplayName(form.firstName, form.lastName) === "-" ? "" : clientDisplayName(form.firstName, form.lastName)}
-                    onType={(value) => {
-                      const [firstName = "", ...rest] = value.trimStart().split(/\s+/);
-                      setForm({ ...form, clientId: "", firstName, lastName: rest.join(" "), email: "", phone: "" });
-                    }}
-                    onSelect={(client) => {
-                      const recentDocument = client.documents?.find((item) => item.addressLine || item.extraAddress || item.postalCode);
-                      setForm({
-                        ...form,
-                        clientId: client.id,
-                        firstName: client.firstName ?? "",
-                        lastName: client.lastName ?? "",
-                        email: client.email ?? "",
-                        phone: client.phone ?? "",
-                        postalCode: recentDocument?.postalCode ?? form.postalCode,
-                        addressLine: recentDocument?.addressLine ?? form.addressLine,
-                        extraAddress: recentDocument?.extraAddress ?? form.extraAddress
-                      });
-                    }}
-                  />
-                </label>
-                <IconField icon={Mail} label="Email" type="email" value={form.email} onChange={(email) => setForm({ ...form, email })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
-                <IconField icon={Phone} label="Phone" value={form.phone} onChange={(phone) => setForm({ ...form, phone })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
-                <IconField icon={Hash} label="Reference / PO (optional)" value={form.cc} onChange={(cc) => setForm({ ...form, cc })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
-                <IconField icon={Calendar} label={`${billingNoun} Date`} type="date" value={form.issueDate} onChange={(issueDate) => setForm({ ...form, issueDate })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
-                <IconField icon={Calendar} label="Due Date" type="date" value={form.dueDate} onChange={(dueDate) => setForm({ ...form, dueDate })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
-                <IconField icon={FileText} label="Job Description" value={form.jobTitle} onChange={(jobTitle) => setForm({ ...form, jobTitle })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
-                <label className="space-y-2">
-                  <span className={fieldLabelClass}>Postal Code</span>
-                  <div className="flex">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-l-lg border border-r-0 border-[#cbd5e1] bg-white text-slate-500 dark:border-border/70 dark:bg-background dark:text-muted-foreground">
-                      <Hash className="h-4 w-4" />
+              <div className="space-y-4">
+                <div className="grid gap-x-5 gap-y-4 md:grid-cols-2 lg:grid-cols-3">
+                  <label className="space-y-2">
+                    <span className={fieldLabelClass}>Client</span>
+                    <InvoiceClientPicker
+                      clients={clients}
+                      value={clientDisplayName(form.firstName, form.lastName) === "-" ? "" : clientDisplayName(form.firstName, form.lastName)}
+                      onType={(value) => {
+                        const [firstName = "", ...rest] = value.trimStart().split(/\s+/);
+                        setForm({ ...form, clientId: "", firstName, lastName: rest.join(" "), email: "", phone: "" });
+                      }}
+                      onSelect={(client) => {
+                        const recentDocument = client.documents?.find((item) => item.addressLine || item.extraAddress || item.postalCode);
+                        setForm({
+                          ...form,
+                          clientId: client.id,
+                          firstName: client.firstName ?? "",
+                          lastName: client.lastName ?? "",
+                          email: client.email ?? "",
+                          phone: client.phone ?? "",
+                          postalCode: recentDocument?.postalCode ?? form.postalCode,
+                          addressLine: recentDocument?.addressLine ?? form.addressLine,
+                          extraAddress: recentDocument?.extraAddress ?? form.extraAddress
+                        });
+                      }}
+                    />
+                  </label>
+                  <IconField icon={Mail} label="Email" type="email" value={form.email} onChange={(email) => setForm({ ...form, email })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
+                  <IconField icon={Phone} label="Phone Number /UK Format/ (Optional)" value={form.phone} onChange={(phone) => setForm({ ...form, phone })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
+                  <IconField icon={Hash} label="Reference / PO (optional)" value={form.cc} onChange={(cc) => setForm({ ...form, cc })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
+                  <label className="space-y-2">
+                    <span className={fieldLabelClass}>Postal Code</span>
+                    <div className="flex">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-l-lg border border-r-0 border-[#cbd5e1] bg-white text-slate-500 dark:border-border/70 dark:bg-background dark:text-muted-foreground">
+                        <Hash className="h-4 w-4" />
+                      </div>
+                      <Input className={`${formInputClass} rounded-none`} value={form.postalCode} onChange={(event) => setForm({ ...form, postalCode: event.target.value })} />
+                      <Button type="button" className="h-10 w-10 rounded-l-none rounded-r-lg bg-[#ef1228] hover:bg-[#d90f22]" size="icon" onClick={searchPostcodeAddress}>
+                        <Search className="h-4 w-4" />
+                      </Button>
                     </div>
-                    <Input className={`${formInputClass} rounded-none`} value={form.postalCode} onChange={(event) => setForm({ ...form, postalCode: event.target.value })} />
-                    <Button type="button" className="h-10 w-10 rounded-l-none rounded-r-lg bg-[#ef1228] hover:bg-[#d90f22]" size="icon" onClick={searchPostcodeAddress}>
-                      <Search className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </label>
-                <label className="space-y-2 md:col-span-2">
-                  <span className={fieldLabelClass}>Address</span>
-                  <AddressCombobox
-                    value={form.addressLine}
-                    onChange={(value, selected) => setForm({ ...form, addressLine: value, selectedAddress: selected })}
-                    lookupQuery={addressLookup.query}
-                    lookupNonce={addressLookup.nonce}
-                    inputClassName={formInputClass}
-                  />
-                </label>
+                  </label>
+                </div>
+
+                <div className="grid gap-x-5 gap-y-4 md:grid-cols-2">
+                  <label className="space-y-2">
+                    <span className={fieldLabelClass}>Address</span>
+                    <AddressCombobox
+                      value={form.addressLine}
+                      onChange={(value, selected) => setForm({ ...form, addressLine: value, selectedAddress: selected })}
+                      lookupQuery={addressLookup.query}
+                      lookupNonce={addressLookup.nonce}
+                      inputClassName={formInputClass}
+                    />
+                  </label>
+                  <IconField icon={Home} label="Address 2 (Optional)" value={form.extraAddress} onChange={(extraAddress) => setForm({ ...form, extraAddress })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
+                </div>
+
+                <div className="grid gap-x-5 gap-y-4 md:grid-cols-2">
+                  <IconField icon={Calendar} label={`${billingNoun} Date`} type="date" value={form.issueDate} onChange={(issueDate) => setForm({ ...form, issueDate })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
+                  <IconField icon={FileText} label="Job Description" value={form.jobTitle} onChange={(jobTitle) => setForm({ ...form, jobTitle })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
+                </div>
               </div>
             </div>
 
@@ -1081,84 +1134,6 @@ export function DocumentFormPage() {
               </div>
             </div>
 
-            <div className="hidden">
-              <h2 className="mb-4 text-base font-bold">Payment Settings</h2>
-              <div className="grid gap-5 md:grid-cols-3">
-                <label className="space-y-1.5">
-                  <span className={fieldLabelClass}>Payment method</span>
-                  <select className={`h-10 w-full rounded-md px-3 text-sm ${invoiceInputClass}`}>
-                    <option>Bank Transfer</option>
-                  </select>
-                </label>
-                <div className="space-y-1.5">
-                  <span className={fieldLabelClass}>Online card payment</span>
-                  <ToggleSwitch label="Include payment link in email" checked={form.sendMail} onChange={(sendMail) => setForm({ ...form, sendMail })} />
-                </div>
-                <div className="space-y-1.5">
-                  <span className={fieldLabelClass}>Payment status</span>
-                  <div className="inline-flex h-10 items-center rounded-full bg-[#ffdf9e] px-5 text-sm font-bold text-[#8a4a00]">Unpaid</div>
-                </div>
-                <div className="hidden rounded-md border bg-background p-4">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 text-sm font-semibold">
-                      <Banknote className="h-4 w-4 text-[#DD2D3E]" /> Bank transfer
-                    </div>
-                    <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-700">Default</span>
-                  </div>
-                  <div className="space-y-1 text-xs text-muted-foreground">
-                    <p>Barclays Bank</p>
-                    <p>E electrics limited</p>
-                    <p>Account 23929884 · Sort 20-25-19</p>
-                  </div>
-                </div>
-                <div className="hidden rounded-md border bg-background p-4">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 text-sm font-semibold">
-                      <CreditCard className="h-4 w-4 text-[#DD2D3E]" /> Online card payment
-                    </div>
-                    <span className="rounded-full bg-secondary px-2 py-1 text-xs font-semibold">Email only</span>
-                  </div>
-                  <ToggleSwitch label="Attach images in email" checked={form.sendImages} onChange={(sendImages) => setForm({ ...form, sendImages })} />
-                </div>
-                <label className="hidden space-y-2 md:col-span-2">
-                    <span className={fieldLabelClass}>{billingNoun} Notes</span>
-                  <RichTextarea value={form.description} onChange={(description) => setForm({ ...form, description })} minHeight="min-h-28" />
-                </label>
-                <label className="hidden space-y-2 md:col-span-2">
-                  <span className={fieldLabelClass}>PDF Notes</span>
-                  <Textarea value={form.emailNote} onChange={(event) => setForm({ ...form, emailNote: event.target.value })} className="min-h-24" />
-                </label>
-                <label className="hidden space-y-2 md:col-span-2">
-                  <span className={fieldLabelClass}>Images</span>
-                  <Input type="file" multiple accept="image/*" onChange={handleImages} />
-                </label>
-                {form.attachments.length ? (
-                  <div className="grid gap-3 md:col-span-2 sm:grid-cols-2 lg:grid-cols-3">
-                    {form.attachments.map((attachment, index) => (
-                      <div key={`${attachment.name}-${index}`} className="overflow-hidden rounded-md border">
-                        <img src={attachment.dataUrl} alt={attachment.name} className="h-28 w-full object-cover" />
-                        <div className="flex items-center justify-between gap-2 p-2">
-                          <span className="truncate text-xs text-muted-foreground">{attachment.name}</span>
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="ghost"
-                            onClick={() =>
-                              setForm((current) => ({
-                                ...current,
-                                attachments: current.attachments.filter((_, itemIndex) => itemIndex !== index)
-                              }))
-                            }
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-            </div>
             <div className="overflow-hidden rounded-2xl border border-border/50 bg-card/75 shadow-sm backdrop-blur-xl">
               <button
                 type="button"
@@ -1170,19 +1145,21 @@ export function DocumentFormPage() {
               </button>
               {invoiceNotesOpen ? (
                 <div className="grid gap-5 border-t border-border/60 p-4 sm:p-5">
-                  <SnippetSelect onInsert={(text) => setForm((current) => ({ ...current, emailNote: appendSnippetText(current.emailNote, text) }))} />
-                  <label className="space-y-2">
+                  <div className="space-y-2">
                     <span className={fieldLabelClass}>Greeting Description</span>
-                    <RichTextarea value={form.greeting} onChange={(greeting) => setForm({ ...form, greeting })} minHeight="min-h-24" />
-                  </label>
-                  <label className="space-y-2">
+                    <SnippetSelect targetLabel="greeting" onInsert={(text) => setForm((current) => ({ ...current, greeting: appendRichSnippet(current.greeting, text) }))} />
+                    <RichTextarea ariaLabel="Greeting Description" value={form.greeting} onChange={(greeting) => setForm((current) => ({ ...current, greeting }))} minHeight="min-h-24" />
+                  </div>
+                  <div className="space-y-2">
                     <span className={fieldLabelClass}>{billingNoun} Description</span>
-                    <RichTextarea value={form.description} onChange={(description) => setForm({ ...form, description })} minHeight="min-h-28" />
-                  </label>
-                  <label className="space-y-2">
+                    <SnippetSelect targetLabel={`${billingNoun.toLowerCase()} description`} onInsert={(text) => setForm((current) => ({ ...current, description: appendRichSnippet(current.description, text) }))} />
+                    <RichTextarea ariaLabel={`${billingNoun} Description`} value={form.description} onChange={(description) => setForm((current) => ({ ...current, description }))} minHeight="min-h-28" />
+                  </div>
+                  <div className="space-y-2">
                     <span className={fieldLabelClass}>Notes</span>
-                    <RichTextarea value={form.emailNote} onChange={(emailNote) => setForm({ ...form, emailNote })} minHeight="min-h-24" />
-                  </label>
+                    <SnippetSelect targetLabel="notes" onInsert={(text) => setForm((current) => ({ ...current, emailNote: appendRichSnippet(current.emailNote, text) }))} />
+                    <RichTextarea ariaLabel="Notes" value={form.emailNote} onChange={(emailNote) => setForm((current) => ({ ...current, emailNote }))} minHeight="min-h-24" />
+                  </div>
                   <label className="space-y-2">
                     <span className={fieldLabelClass}>Images</span>
                     <Input className={formInputClass} type="file" multiple accept="image/*" onChange={handleImages} />
@@ -1221,7 +1198,10 @@ export function DocumentFormPage() {
               ) : null}
             </div>
             <div className="rounded-2xl border border-border/50 bg-card/75 p-4 shadow-sm backdrop-blur-xl">
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <Button type="button" variant="outline" className="h-12 rounded-xl border-border/70 bg-background text-foreground hover:bg-secondary" onClick={() => navigate(-1)}>
+                  <ArrowLeft className="h-5 w-5" /> Back
+                </Button>
                 <Button type="button" variant="outline" className="h-12 rounded-xl border-border/70 bg-background text-foreground hover:bg-secondary" onClick={() => submitDocument({ sendMail: false, status: "DRAFT" })} loading={mutation.isPending}>
                   <Save className="h-5 w-5" /> Save Draft
                 </Button>
@@ -1235,46 +1215,6 @@ export function DocumentFormPage() {
             </div>
           </div>
 
-          <div className="min-w-0 space-y-4 xl:sticky xl:top-[88px] xl:h-[calc(100dvh-104px)] xl:self-start xl:overflow-hidden">
-              <InvoicePreviewPanel
-              documentType={form.type as DocumentType}
-              documentNo={existing?.documentNo ?? "Draft"}
-              issueDate={form.issueDate}
-              dueDate={form.dueDate}
-              clientName={clientDisplayName(form.firstName, form.lastName)}
-              addressLine={form.addressLine}
-              extraAddress={form.extraAddress}
-              jobTitle={form.jobTitle}
-              greeting={form.greeting}
-              invoiceDescription={form.description}
-              items={normalizedRows}
-              subtotal={subtotal}
-              notes={form.emailNote}
-              previewMode={invoicePreviewMode}
-              onPreviewModeChange={setInvoicePreviewMode}
-              onDownloadPdf={downloadPdf}
-            />
-            <div className="hidden rounded-lg border bg-card p-4 shadow-sm">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Total Due</div>
-                  <div className="text-3xl font-semibold">{formatPounds(documentAmount)}</div>
-                </div>
-                <MailToggleButton checked={form.sendMail} onChange={(sendMail) => setForm({ ...form, sendMail })} />
-              </div>
-              <div className="grid gap-2 sm:grid-cols-3">
-                <Button type="button" variant="outline" onClick={() => submitDocument({ sendMail: false, status: "DRAFT" })} loading={mutation.isPending}>
-                  <Save className="h-4 w-4" /> Save Draft
-                </Button>
-                <Button type="button" variant="secondary" onClick={previewPdf}>
-                  <FileText className="h-4 w-4" /> Preview PDF
-                </Button>
-                <Button onClick={() => submitDocument()} disabled={!form.firstName || !form.jobTitle} loading={mutation.isPending}>
-                  <Send className="h-4 w-4" /> Send {billingNoun}
-                </Button>
-              </div>
-            </div>
-          </div>
         </div>
         {previewModal}
       </div>
@@ -1295,9 +1235,12 @@ export function DocumentFormPage() {
               <ArrowLeft className="h-4 w-4" />
               Back
             </Button>
-            <h1 className="text-2xl font-bold tracking-tight sm:text-[28px]">{isEdit ? "Edit Booking" : "New Booking"}</h1>
+            <h1 className="text-2xl font-bold tracking-tight sm:text-[28px]">{isEdit ? "Edit Booking" : isClone ? "Clone as New Booking" : "New Booking"}</h1>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="outline" className="h-10 rounded-xl border-border/70 bg-card px-4 text-foreground hover:bg-secondary" onClick={previewBooking}>
+              <FileText className="h-4 w-4" /> Preview
+            </Button>
             <Button type="button" variant="outline" className="h-10 rounded-xl border-border/70 bg-card px-5 text-foreground hover:bg-secondary" onClick={() => submitDocument({ sendMail: false, status: "DRAFT" })} loading={mutation.isPending}>
               <Save className="h-4 w-4" /> Save Draft
             </Button>
@@ -1331,53 +1274,61 @@ export function DocumentFormPage() {
           </div>
         </div>
 
-        <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+        <div className="mx-auto min-w-0 max-w-6xl">
           <div className="min-w-0 space-y-3">
             <div className="rounded-2xl border border-border/50 bg-card/75 p-4 shadow-sm backdrop-blur-xl sm:p-5">
               <h2 className="mb-4 text-base font-bold">Client & Booking Details</h2>
-              <div className="grid gap-x-5 gap-y-4 md:grid-cols-2">
-                <IconField icon={User} label="First Name" value={form.firstName} onChange={(firstName) => setForm({ ...form, firstName })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
-                <IconField icon={User} label="Last Name (Optional)" value={form.lastName} onChange={(lastName) => setForm({ ...form, lastName })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
-                <IconField icon={Mail} label="Email" type="email" value={form.email} onChange={(email) => setForm({ ...form, email })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
-                <IconField icon={Phone} label="Phone Number /UK Format/ (Optional)" value={form.phone} onChange={(phone) => setForm({ ...form, phone })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
-                <IconField icon={Mail} label="CC (Optional)" type="email" value={form.cc} onChange={(cc) => setForm({ ...form, cc })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
-                <label className="space-y-2">
-                  <span className={fieldLabelClass}>Postal Code</span>
-                  <div className="flex">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-l-lg border border-r-0 border-[#cbd5e1] bg-white text-slate-500 dark:border-border/70 dark:bg-background dark:text-muted-foreground">
-                      <Hash className="h-4 w-4" />
+              <div className="space-y-4">
+                <div className="grid gap-x-5 gap-y-4 md:grid-cols-2 lg:grid-cols-3">
+                  <IconField icon={User} label="First Name" value={form.firstName} onChange={(firstName) => setForm({ ...form, firstName })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
+                  <IconField icon={User} label="Last Name (Optional)" value={form.lastName} onChange={(lastName) => setForm({ ...form, lastName })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
+                  <IconField icon={Mail} label="Email" type="email" value={form.email} onChange={(email) => setForm({ ...form, email })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
+                  <IconField icon={Phone} label="Phone Number /UK Format/ (Optional)" value={form.phone} onChange={(phone) => setForm({ ...form, phone })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
+                  <IconField icon={Mail} label="CC (Optional)" type="email" value={form.cc} onChange={(cc) => setForm({ ...form, cc })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
+                  <label className="space-y-2">
+                    <span className={fieldLabelClass}>Postal Code</span>
+                    <div className="flex">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-l-lg border border-r-0 border-[#cbd5e1] bg-white text-slate-500 dark:border-border/70 dark:bg-background dark:text-muted-foreground">
+                        <Hash className="h-4 w-4" />
+                      </div>
+                      <Input
+                        className={`${formInputClass} rounded-none`}
+                        value={form.postalCode}
+                        onChange={(event) => setForm({ ...form, postalCode: event.target.value })}
+                      />
+                      <Button type="button" className="h-10 w-10 rounded-l-none rounded-r-lg bg-[#ef1228] hover:bg-[#d90f22]" size="icon" onClick={searchPostcodeAddress}>
+                        <Search className="h-4 w-4" />
+                      </Button>
                     </div>
-                    <Input
-                      className={`${formInputClass} rounded-none`}
-                      value={form.postalCode}
-                      onChange={(event) => setForm({ ...form, postalCode: event.target.value })}
+                  </label>
+                </div>
+
+                <div className="grid gap-x-5 gap-y-4 md:grid-cols-2">
+                  <label className="space-y-2">
+                    <span className={fieldLabelClass}>Address</span>
+                    <AddressCombobox
+                      value={form.addressLine}
+                      onChange={(value, selected) => setForm({ ...form, addressLine: value, selectedAddress: selected })}
+                      lookupQuery={addressLookup.query}
+                      lookupNonce={addressLookup.nonce}
+                      inputClassName={formInputClass}
                     />
-                    <Button type="button" className="h-10 w-10 rounded-l-none rounded-r-lg bg-[#ef1228] hover:bg-[#d90f22]" size="icon" onClick={searchPostcodeAddress}>
-                      <Search className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </label>
-                <label className="space-y-2 md:col-span-2">
-                  <span className={fieldLabelClass}>Address</span>
-                  <AddressCombobox
-                    value={form.addressLine}
-                    onChange={(value, selected) => setForm({ ...form, addressLine: value, selectedAddress: selected })}
-                    lookupQuery={addressLookup.query}
-                    lookupNonce={addressLookup.nonce}
-                    inputClassName={formInputClass}
+                  </label>
+                  <IconField icon={Home} label="Address 2 (Optional)" value={form.extraAddress} onChange={(extraAddress) => setForm({ ...form, extraAddress })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
+                </div>
+
+                <div className="grid gap-x-5 gap-y-4 md:grid-cols-2">
+                  <IconField
+                    icon={Calendar}
+                    label="Booking Date"
+                    type="date"
+                    value={form.bookingDate || form.issueDate}
+                    onChange={(value) => setForm({ ...form, issueDate: value, bookingDate: value })}
+                    inputClassName={invoiceInputClass}
+                    iconClassName="border-border/70 bg-background text-muted-foreground"
                   />
-                </label>
-                <IconField icon={Home} label="Address 2 (Optional)" value={form.extraAddress} onChange={(extraAddress) => setForm({ ...form, extraAddress })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
-                <IconField
-                  icon={Calendar}
-                  label="Booking Date"
-                  type="date"
-                  value={form.bookingDate || form.issueDate}
-                  onChange={(value) => setForm({ ...form, issueDate: value, bookingDate: value })}
-                  inputClassName={invoiceInputClass}
-                  iconClassName="border-border/70 bg-background text-muted-foreground"
-                />
-                <IconField icon={FileText} label="Job Description" value={form.jobTitle} onChange={(jobTitle) => setForm({ ...form, jobTitle })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
+                  <IconField icon={FileText} label="Job Description" value={form.jobTitle} onChange={(jobTitle) => setForm({ ...form, jobTitle })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
+                </div>
               </div>
             </div>
 
@@ -1390,19 +1341,21 @@ export function DocumentFormPage() {
                 <Mail className="h-5 w-5 text-primary" />
               </div>
               <div className="grid gap-5">
-                <SnippetSelect onInsert={(text) => setForm((current) => ({ ...current, emailNote: appendSnippetText(current.emailNote, text) }))} />
-                <label className="space-y-2">
+                <div className="space-y-2">
                   <span className={fieldLabelClass}>Greeting Description</span>
-                  <RichTextarea value={form.greeting} onChange={(greeting) => setForm({ ...form, greeting })} minHeight="min-h-40" />
-                </label>
-                <label className="space-y-2">
+                  <SnippetSelect targetLabel="greeting" onInsert={(text) => setForm((current) => ({ ...current, greeting: appendRichSnippet(current.greeting, text) }))} />
+                  <RichTextarea ariaLabel="Greeting Description" value={form.greeting} onChange={(greeting) => setForm((current) => ({ ...current, greeting }))} minHeight="min-h-40" />
+                </div>
+                <div className="space-y-2">
                   <span className={fieldLabelClass}>Booking Description</span>
-                  <RichTextarea value={form.description} onChange={(description) => setForm({ ...form, description })} minHeight="min-h-36" />
-                </label>
-                <label className="space-y-2">
+                  <SnippetSelect targetLabel="booking description" onInsert={(text) => setForm((current) => ({ ...current, description: appendRichSnippet(current.description, text) }))} />
+                  <RichTextarea ariaLabel="Booking Description" value={form.description} onChange={(description) => setForm((current) => ({ ...current, description }))} minHeight="min-h-36" />
+                </div>
+                <div className="space-y-2">
                   <span className={fieldLabelClass}>Notes</span>
-                  <RichTextarea value={form.emailNote} onChange={(emailNote) => setForm({ ...form, emailNote })} minHeight="min-h-24" />
-                </label>
+                  <SnippetSelect targetLabel="notes" onInsert={(text) => setForm((current) => ({ ...current, emailNote: appendRichSnippet(current.emailNote, text) }))} />
+                  <RichTextarea ariaLabel="Notes" value={form.emailNote} onChange={(emailNote) => setForm((current) => ({ ...current, emailNote }))} minHeight="min-h-24" />
+                </div>
               </div>
             </div>
 
@@ -1453,12 +1406,15 @@ export function DocumentFormPage() {
             </div>
 
             <div className="rounded-2xl border border-border/50 bg-card/75 p-4 shadow-sm backdrop-blur-xl">
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <Button type="button" variant="outline" className="h-12 rounded-xl border-border/70 bg-background text-foreground hover:bg-secondary" onClick={() => navigate(-1)}>
                   <ArrowLeft className="h-5 w-5" /> Back
                 </Button>
                 <Button type="button" variant="outline" className="h-12 rounded-xl border-border/70 bg-background text-foreground hover:bg-secondary" onClick={() => submitDocument({ sendMail: false, status: "DRAFT" })} loading={mutation.isPending}>
                   <Save className="h-5 w-5" /> Save Draft
+                </Button>
+                <Button type="button" variant="outline" className="h-12 rounded-xl border-border/70 bg-background text-foreground hover:bg-secondary" onClick={previewBooking}>
+                  <FileText className="h-5 w-5" /> Preview
                 </Button>
                 <Button className="h-12 rounded-xl" onClick={() => submitDocument()} disabled={!form.firstName || !form.jobTitle} loading={mutation.isPending}>
                   <Send className="h-5 w-5" /> Send Booking Email
@@ -1467,23 +1423,6 @@ export function DocumentFormPage() {
             </div>
           </div>
 
-          <div className="min-w-0 space-y-4 xl:sticky xl:top-[88px] xl:h-[calc(100dvh-104px)] xl:self-start xl:overflow-hidden">
-            <BookingPreviewPanel
-              documentNo={existing?.documentNo ?? "Draft"}
-              bookingDate={form.bookingDate || form.issueDate}
-              clientName={clientDisplayName(form.firstName, form.lastName)}
-              addressLine={form.addressLine}
-              extraAddress={form.extraAddress}
-              postalCode={form.postalCode}
-              jobTitle={form.jobTitle}
-              greeting={form.greeting}
-              bookingDescription={form.description}
-              notes={form.emailNote}
-              previewMode={invoicePreviewMode}
-              onPreviewModeChange={setInvoicePreviewMode}
-              onPreviewBooking={previewBooking}
-            />
-          </div>
         </div>
         {previewModal}
       </div>
@@ -1564,21 +1503,21 @@ export function DocumentFormPage() {
               onPriceChange={(materialPrice) => setForm({ ...form, materialPrice })}
             />
           ) : null}
-          <label className="space-y-2 md:col-span-3">
+          <div className="space-y-2 md:col-span-3">
             <span className={fieldLabelClass}>Greeting Description</span>
-            <RichTextarea value={form.greeting} onChange={(greeting) => setForm({ ...form, greeting })} minHeight="min-h-44" />
-          </label>
-          <div className="md:col-span-3">
-            <SnippetSelect onInsert={(text) => setForm((current) => ({ ...current, emailNote: appendSnippetText(current.emailNote, text) }))} />
+            <SnippetSelect targetLabel="greeting" onInsert={(text) => setForm((current) => ({ ...current, greeting: appendRichSnippet(current.greeting, text) }))} />
+            <RichTextarea ariaLabel="Greeting Description" value={form.greeting} onChange={(greeting) => setForm((current) => ({ ...current, greeting }))} minHeight="min-h-44" />
           </div>
-          <label className="space-y-2 md:col-span-3">
+          <div className="space-y-2 md:col-span-3">
             <span className={fieldLabelClass}>{copy.body}</span>
-            <RichTextarea value={form.description} onChange={(description) => setForm({ ...form, description })} minHeight="min-h-44" />
-          </label>
-          <label className="space-y-2 md:col-span-3">
+            <SnippetSelect targetLabel={copy.body.toLowerCase()} onInsert={(text) => setForm((current) => ({ ...current, description: appendRichSnippet(current.description, text) }))} />
+            <RichTextarea ariaLabel={copy.body} value={form.description} onChange={(description) => setForm((current) => ({ ...current, description }))} minHeight="min-h-44" />
+          </div>
+          <div className="space-y-2 md:col-span-3">
             <span className={fieldLabelClass}>Notes (optional)</span>
-            <RichTextarea value={form.emailNote} onChange={(emailNote) => setForm({ ...form, emailNote })} minHeight="min-h-32" />
-          </label>
+            <SnippetSelect targetLabel="notes" onInsert={(text) => setForm((current) => ({ ...current, emailNote: appendRichSnippet(current.emailNote, text) }))} />
+            <RichTextarea ariaLabel="Notes" value={form.emailNote} onChange={(emailNote) => setForm((current) => ({ ...current, emailNote }))} minHeight="min-h-32" />
+          </div>
 
           <label className="space-y-2 md:col-span-3">
             <span className={fieldLabelClass}>Images</span>
@@ -1638,302 +1577,102 @@ export function DocumentFormPage() {
 
 function PreviewHtmlDialog({
   preview,
+  downloadUrl,
   onOpenChange
 }: {
   preview: { title: string; html: string } | null;
+  downloadUrl?: string;
   onOpenChange: (open: boolean) => void;
 }) {
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  const [previewMode, setPreviewMode] = useState<"desktop" | "mobile">("desktop");
+
+  const downloadPreview = () => {
+    if (downloadUrl) {
+      const link = window.document.createElement("a");
+      link.href = downloadUrl;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      window.document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast.success("PDF download started");
+      return;
+    }
+
+    const frameWindow = frameRef.current?.contentWindow;
+    if (!frameWindow) {
+      toast.error("Preview is still loading");
+      return;
+    }
+    frameWindow.focus();
+    frameWindow.print();
+    toast.info("Choose Save as PDF in the print window");
+  };
+
   return (
-    <Dialog open={Boolean(preview)} onOpenChange={onOpenChange}>
-      <DialogContent className="h-[92svh] w-[calc(100vw-1rem)] max-w-6xl gap-3 overflow-hidden rounded-3xl border-border/60 bg-card/95 p-4 shadow-apple backdrop-blur-xl sm:w-[calc(100vw-3rem)] sm:p-5">
-        <DialogHeader>
-          <DialogTitle>{preview?.title ?? "Preview"}</DialogTitle>
-        </DialogHeader>
-        <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-border bg-white">
-          {preview ? <iframe title={preview.title} srcDoc={preview.html} className="h-full min-h-[70svh] w-full bg-white" /> : null}
+    <Dialog
+      open={Boolean(preview)}
+      onOpenChange={(open) => {
+        if (!open) setPreviewMode("desktop");
+        onOpenChange(open);
+      }}
+    >
+      <DialogContent className="flex h-[100dvh] w-screen !max-w-none flex-col gap-0 overflow-hidden border-0 bg-card p-0 shadow-2xl sm:h-[calc(100dvh-2rem)] sm:w-[calc(100vw-2rem)] sm:rounded-2xl sm:border sm:border-border/70">
+        <div className="flex shrink-0 flex-col gap-3 border-b border-border/70 bg-card/95 px-4 py-3 pr-14 backdrop-blur-xl sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-4 sm:pr-14">
+          <DialogHeader className="min-w-0 space-y-0 text-left">
+            <DialogTitle className="flex min-w-0 items-center gap-2 text-base sm:text-lg">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <FileText className="h-4 w-4" />
+              </span>
+              <span className="truncate">{preview?.title ?? "Document Preview"}</span>
+            </DialogTitle>
+            <DialogDescription className="pl-11 text-xs sm:text-sm">Review the current form before saving or sending.</DialogDescription>
+          </DialogHeader>
+
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 sm:flex sm:shrink-0 sm:items-center">
+            <div className="grid grid-cols-2 rounded-lg border border-border/70 bg-secondary/60 p-1">
+              <button
+                type="button"
+                className={`flex h-9 items-center justify-center gap-2 rounded-md px-3 text-xs font-semibold transition sm:text-sm ${previewMode === "desktop" ? "bg-background text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                onClick={() => setPreviewMode("desktop")}
+                aria-pressed={previewMode === "desktop"}
+                aria-label="Desktop preview"
+              >
+                <Monitor className="h-4 w-4" /> Desktop
+              </button>
+              <button
+                type="button"
+                className={`flex h-9 items-center justify-center gap-2 rounded-md px-3 text-xs font-semibold transition sm:text-sm ${previewMode === "mobile" ? "bg-background text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                onClick={() => setPreviewMode("mobile")}
+                aria-pressed={previewMode === "mobile"}
+                aria-label="Mobile preview"
+              >
+                <Smartphone className="h-4 w-4" /> Mobile
+              </button>
+            </div>
+            <Button type="button" className="h-11 rounded-lg px-3 text-xs sm:h-10 sm:px-4 sm:text-sm" onClick={downloadPreview} aria-label={downloadUrl ? "Download PDF" : "Save as PDF"}>
+              <Download className="h-4 w-4" />
+              <span className="hidden sm:inline">{downloadUrl ? "Download PDF" : "Save as PDF"}</span>
+              <span className="sm:hidden">PDF</span>
+            </Button>
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-auto bg-secondary/50 p-2 sm:p-4">
+          <div data-preview-viewport={previewMode} className={`mx-auto h-full min-h-[640px] overflow-hidden rounded-xl border border-border/70 bg-white shadow-sm transition-[width] duration-200 ${previewMode === "mobile" ? "w-full max-w-[390px]" : "w-full max-w-[1040px]"}`}>
+            {preview ? (
+              <iframe
+                ref={frameRef}
+                title={preview.title}
+                srcDoc={preview.html}
+                className="h-full min-h-[640px] w-full bg-white"
+              />
+            ) : null}
+          </div>
         </div>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function InvoicePreviewPanel({
-  documentType,
-  documentNo,
-  issueDate,
-  dueDate,
-  clientName,
-  addressLine,
-  extraAddress,
-  jobTitle,
-  greeting,
-  invoiceDescription,
-  items,
-  subtotal,
-  notes,
-  previewMode,
-  onPreviewModeChange,
-  onDownloadPdf
-}: {
-  documentType: DocumentType;
-  documentNo: string;
-  issueDate: string;
-  dueDate: string;
-  clientName: string;
-  addressLine: string;
-  extraAddress: string;
-  jobTitle: string;
-  greeting: string;
-  invoiceDescription: string;
-  items: LineItem[];
-  subtotal: number;
-  notes: string;
-  previewMode: "desktop" | "mobile";
-  onPreviewModeChange: (mode: "desktop" | "mobile") => void;
-  onDownloadPdf: () => void;
-}) {
-  const documentLabel = documentType === "QUOTATION" ? "Quotation" : "Invoice";
-  return (
-    <div className="flex flex-col rounded-2xl border border-border/50 bg-card/75 p-4 shadow-apple backdrop-blur-xl sm:p-5 xl:h-full">
-      <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-        <div className="text-base font-bold">Live Preview</div>
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-          <button
-            type="button"
-            className={`flex h-9 w-11 items-center justify-center rounded-md border ${
-              previewMode === "desktop" ? "border-primary bg-primary/10 text-primary" : "border-border/70 bg-background text-muted-foreground"
-            }`}
-            onClick={() => onPreviewModeChange("desktop")}
-          >
-            <Monitor className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            className={`flex h-9 w-11 items-center justify-center rounded-md border ${
-              previewMode === "mobile" ? "border-primary bg-primary/10 text-primary" : "border-border/70 bg-background text-muted-foreground"
-            }`}
-            onClick={() => onPreviewModeChange("mobile")}
-          >
-            <Smartphone className="h-4 w-4" />
-          </button>
-          <button type="button" className="ml-0 flex h-10 flex-1 items-center justify-center gap-2 rounded-xl border border-border/70 bg-background px-4 text-sm font-medium text-foreground hover:bg-secondary sm:ml-3 sm:flex-none" onClick={onDownloadPdf}>
-            <Download className="h-4 w-4" /> Download PDF
-          </button>
-        </div>
-      </div>
-      <div className={`${previewMode === "mobile" ? "mx-auto max-w-[390px] px-4 py-5" : "mx-auto max-w-[860px] px-7 py-7"} min-h-0 flex-1 overflow-auto border border-[#d5dce7] bg-white text-black shadow-lg`}>
-        <div>
-          <div className="mb-5 flex items-start justify-between gap-4">
-            <img src={oldCrmLogoUrl} alt="E Electrics" className={`h-auto ${previewMode === "mobile" ? "w-40" : "w-56"}`} />
-            <div className="text-right">
-              <div className={`${previewMode === "mobile" ? "text-xl" : "text-2xl"} font-bold uppercase text-[#ef1228]`}>{documentLabel}</div>
-              <div className="text-base font-bold">{documentNo}</div>
-            </div>
-          </div>
-          <div className={`grid text-[12px] leading-5 ${previewMode === "mobile" ? "gap-4" : "gap-8 sm:grid-cols-2"}`}>
-            <div>
-              <p className="font-bold">E Electrics Ltd</p>
-              <p>57 Beckhampton Road</p>
-              <p>Bath, BA2 1BL</p>
-              <p>United Kingdom</p>
-              <p>Registration No: 12418331</p>
-              <p>NAPIT Member No: 65513</p>
-              <p>info@eelectrics.co.uk&nbsp;&nbsp;|&nbsp;&nbsp;0800 999 1452</p>
-            </div>
-            <div className="grid gap-5">
-              <div className="grid grid-cols-[100px_1fr] gap-x-4">
-                <span className="font-bold">{documentLabel} Date:</span><span>{formatOldDate(issueDate)}</span>
-                <span className="font-bold">Due Date:</span><span>{dueDate ? formatOldDate(dueDate) : "-"}</span>
-              </div>
-              <div className="rounded border border-[#d5dce7] bg-[#fbfcfe] p-3">
-                <p className="font-bold">Bill To:</p>
-                <p className="font-bold">{clientName}</p>
-                <p>{addressLine || "-"}</p>
-                {extraAddress ? <p>{extraAddress}</p> : null}
-              </div>
-            </div>
-          </div>
-          <div className="mt-8 border-t-2 border-[#ef1228] pt-3">
-            {jobTitle ? <div className="mb-2 text-sm font-semibold">{jobTitle}</div> : null}
-            {greeting ? <div className="mb-3 whitespace-pre-wrap text-xs leading-5">{greeting}</div> : null}
-            {invoiceDescription ? <div className="mb-3 whitespace-pre-wrap text-xs leading-5">{invoiceDescription}</div> : null}
-            <div className={`${previewMode === "mobile" ? "grid-cols-[1fr_72px_74px] px-2 text-[10px]" : "grid-cols-[1fr_120px_130px] px-3 text-xs"} grid bg-[#ef1228] py-2 font-bold text-white`}>
-              <span>Description</span>
-              <span className="text-right">Price (GBP)</span>
-              <span className="text-right">Amount</span>
-            </div>
-            <div className="divide-y divide-dashed divide-[#b8c2d0]">
-              {items.length ? (
-                items.map((item, index) => (
-                  <div key={`${item.title}-${index}`} className={`${previewMode === "mobile" ? "grid-cols-[1fr_72px_74px] gap-1 px-2 text-[10px]" : "grid-cols-[1fr_120px_130px] gap-3 px-3 text-xs"} grid py-3`}>
-                    <div>{item.title || "-"}</div>
-                    <div className="text-right">{Number(item.unitPrice || 0).toFixed(2)}</div>
-                    <div className="text-right">{lineItemTotal(item).toFixed(2)}</div>
-                  </div>
-                ))
-              ) : (
-                <div className="px-4 py-8 text-sm text-slate-600">-</div>
-              )}
-            </div>
-            <div className={`ml-auto mt-5 space-y-2 text-xs ${previewMode === "mobile" ? "w-full" : "w-[310px]"}`}>
-              <div className="flex justify-between"><span>Subtotal</span><span>{formatPounds(subtotal)}</span></div>
-            </div>
-            <div className={`ml-auto mt-2 grid grid-cols-[1fr_120px] bg-[#ef1228] px-4 py-3 font-bold text-white ${previewMode === "mobile" ? "w-full text-sm" : "w-[310px] text-base"}`}>
-              <span>Total Due</span>
-              <span className="text-right">{formatPounds(subtotal)}</span>
-            </div>
-          </div>
-          <div className="mt-4 border-b border-[#cfd7e3] pb-5 text-xs">
-            <p className="font-bold text-[#ef1228]">Notes:</p>
-            <p className="mt-2 whitespace-pre-wrap leading-5">{notes || `Thank you for your business. ${documentLabel === "Invoice" ? "Payment is due within 14 days from the invoice date." : "Please review this quotation and contact us with any questions."}`}</p>
-          </div>
-          <div className={`grid gap-6 border-b border-[#ef1228] py-4 text-xs ${previewMode === "mobile" ? "" : "sm:grid-cols-2"}`}>
-            <div>
-              <p className="mb-2 font-bold text-[#ef1228]">Payment Method</p>
-              <p className="font-bold">Bank Transfer</p>
-              <p><strong>Account Name:</strong> E Electrics Ltd</p>
-              <p><strong>Sort Code:</strong> 20-25-19</p>
-              <p><strong>Account No:</strong> 23929884</p>
-            </div>
-            <div>
-              <p>Alternative payment option:</p>
-              <p className="font-bold text-[#ef1228]">Online card payment</p>
-              <p>A secure payment link is included in the email.</p>
-            </div>
-          </div>
-          <p className="pt-3 text-center text-xs">Thank you for choosing E Electrics Ltd.</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function BookingPreviewPanel({
-  documentNo,
-  bookingDate,
-  clientName,
-  addressLine,
-  extraAddress,
-  postalCode,
-  jobTitle,
-  greeting,
-  bookingDescription,
-  notes,
-  previewMode,
-  onPreviewModeChange,
-  onPreviewBooking
-}: {
-  documentNo: string;
-  bookingDate: string;
-  clientName: string;
-  addressLine: string;
-  extraAddress: string;
-  postalCode: string;
-  jobTitle: string;
-  greeting: string;
-  bookingDescription: string;
-  notes: string;
-  previewMode: "desktop" | "mobile";
-  onPreviewModeChange: (mode: "desktop" | "mobile") => void;
-  onPreviewBooking: () => void;
-}) {
-  const compact = previewMode === "mobile";
-  const previewWidth = compact ? "max-w-[340px]" : "max-w-[860px]";
-
-  return (
-    <div className="flex flex-col rounded-2xl border border-border/50 bg-card/75 p-4 shadow-apple backdrop-blur-xl sm:p-5 xl:h-full">
-      <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-        <div>
-          <h2 className="text-base font-bold">Live Preview</h2>
-          <p className="mt-1 text-xs text-muted-foreground">Booking email and PDF layout preview.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex rounded-xl border border-border/70 bg-background p-1">
-            <button
-              type="button"
-              className={`flex h-8 w-9 items-center justify-center rounded-lg ${previewMode === "desktop" ? "border border-primary bg-primary/10 text-primary" : "text-muted-foreground hover:bg-secondary"}`}
-              onClick={() => onPreviewModeChange("desktop")}
-              title="Desktop preview"
-            >
-              <Monitor className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              className={`flex h-8 w-9 items-center justify-center rounded-lg ${previewMode === "mobile" ? "border border-primary bg-primary/10 text-primary" : "text-muted-foreground hover:bg-secondary"}`}
-              onClick={() => onPreviewModeChange("mobile")}
-              title="Mobile preview"
-            >
-              <Smartphone className="h-4 w-4" />
-            </button>
-          </div>
-          <Button type="button" variant="outline" className="h-10 rounded-xl border-border/70 bg-background px-4 text-foreground hover:bg-secondary" onClick={onPreviewBooking}>
-            <FileText className="h-4 w-4" />
-            Preview Booking
-          </Button>
-        </div>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-auto rounded-2xl border border-border/60 bg-background/60 p-2 sm:p-4">
-        <div className={`mx-auto min-h-[760px] ${previewWidth} bg-white p-6 text-[#101828] shadow-sm transition-all sm:p-8`}>
-          <div className="border-t-[3px] border-[#DD2D3E] pt-4">
-            <img src={oldCrmLogoUrl} alt="E Electrics" className="h-auto w-[190px]" />
-          </div>
-
-          <div className={`mt-5 grid gap-6 ${compact ? "grid-cols-1" : "grid-cols-[1fr_.9fr]"}`}>
-            <div className="space-y-1 text-[13px] leading-5">
-              <p className="font-bold">E Electrics | E Electrics Limited</p>
-              <p className="font-bold">Head Office: Dent Close, Essex, RM15 5DS</p>
-              <p>Registration No: 12418331</p>
-              <p>NAPIT Member No: 65513</p>
-              <p>info@eelectrics.co.uk | 0800 999 1452</p>
-            </div>
-            <div className="space-y-1 text-[13px] leading-5">
-              <PreviewLine label="Booking:" value={documentNo || "Draft"} />
-              <PreviewLine label="Date:" value={formatOldDate(bookingDate)} />
-              <PreviewLine label="FAO:" value={clientName} />
-              <PreviewLine label="Address:" value={addressLine || "-"} />
-              {extraAddress ? <PreviewLine label="Address 2:" value={extraAddress} /> : null}
-              {postalCode ? <PreviewLine label="Postcode:" value={postalCode} /> : null}
-            </div>
-          </div>
-
-          <div className="mt-5 border-b-[3px] border-[#DD2D3E] pb-1 text-xl font-bold">BOOKING</div>
-
-          <div className="mt-6 overflow-hidden border border-[#f3c4c9]">
-            <div className={`grid ${compact ? "grid-cols-[1fr_92px] px-3 text-xs" : "grid-cols-[1fr_150px] px-4 text-sm"} bg-[#DD2D3E] py-3 font-bold text-white`}>
-              <span>Description</span>
-              <span>Date</span>
-            </div>
-            <div className={`grid ${compact ? "grid-cols-[1fr_92px] px-3 text-xs" : "grid-cols-[1fr_150px] px-4 text-sm"} bg-[#fff4df] py-4 leading-6`}>
-              <div>
-                <p className="font-bold">{jobTitle || "Booking job description"}</p>
-                {greeting ? <p className="mt-3 whitespace-pre-wrap">{greeting}</p> : null}
-                {bookingDescription ? <p className="mt-3 whitespace-pre-wrap">{bookingDescription}</p> : null}
-              </div>
-              <div>{formatOldDate(bookingDate)}</div>
-            </div>
-          </div>
-
-          <div className="mt-6 text-sm leading-6">
-            <p className="border-b-2 border-[#DD2D3E] pb-1 text-base font-bold">Notes:</p>
-            <p className="mt-2 whitespace-pre-wrap">{notes || defaultBookingNote}</p>
-          </div>
-
-          <div className="mt-8 border-t border-[#DD2D3E] pt-4 text-center text-xs font-semibold">
-            Thank you for choosing E Electrics Ltd.
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PreviewLine({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="grid grid-cols-[82px_1fr] gap-2">
-      <span>{label}</span>
-      <span className="break-words text-right font-medium">{value || "-"}</span>
-    </div>
   );
 }
 
@@ -2229,25 +1968,35 @@ function ToggleSwitch({
 function RichTextarea({
   value,
   onChange,
-  minHeight
+  minHeight,
+  ariaLabel
 }: {
   value: string;
   onChange: (value: string) => void;
   minHeight: string;
+  ariaLabel?: string;
 }) {
   const editorRef = useRef<HTMLDivElement>(null);
   const selectionRef = useRef<Range | null>(null);
+  const lastEmittedValueRef = useRef(value);
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [blockStyle, setBlockStyle] = useState("p");
 
   useEffect(() => {
     const editor = editorRef.current;
-    if (!editor || document.activeElement === editor || editor.innerHTML === value) return;
-    editor.innerHTML = value;
+    const nextValue = String(value ?? "");
+    if (!editor || editor.innerHTML === nextValue) return;
+    editor.innerHTML = nextValue;
+    lastEmittedValueRef.current = nextValue;
   }, [value]);
 
-  const emitValue = () => onChange(editorRef.current?.innerHTML ?? "");
+  const emitValue = () => {
+    const nextValue = editorRef.current?.innerHTML ?? "";
+    if (nextValue === lastEmittedValueRef.current) return;
+    lastEmittedValueRef.current = nextValue;
+    onChange(nextValue);
+  };
   const runCommand = (command: string, commandValue?: string) => {
     editorRef.current?.focus();
     document.execCommand(command, false, commandValue);
@@ -2327,6 +2076,7 @@ function RichTextarea({
         suppressContentEditableWarning
         role="textbox"
         aria-multiline="true"
+        aria-label={ariaLabel}
         className={`${minHeight} max-h-[420px] overflow-y-auto bg-white px-3 py-3 text-sm leading-6 text-[#111827] outline-none empty:before:pointer-events-none empty:before:text-[#94a3b8] empty:before:content-['Start_writing...'] [&_h1]:my-2 [&_h1]:text-2xl [&_h1]:font-bold [&_h1]:leading-tight [&_h2]:my-2 [&_h2]:text-xl [&_h2]:font-bold [&_h2]:leading-tight [&_h3]:my-1.5 [&_h3]:text-lg [&_h3]:font-semibold [&_h4]:my-1.5 [&_h4]:text-base [&_h4]:font-semibold dark:bg-background dark:text-foreground dark:empty:before:text-muted-foreground`}
         onInput={emitValue}
       />
@@ -2334,24 +2084,28 @@ function RichTextarea({
   );
 }
 
-function SnippetSelect({ onInsert }: { onInsert: (text: string) => void }) {
+function SnippetSelect({ targetLabel, onInsert }: { targetLabel: string; onInsert: (text: string) => void }) {
   const snippets = readMailSnippets();
+  const [selectedSnippetId, setSelectedSnippetId] = useState("");
   return (
     <label className="block min-w-0 space-y-1.5">
-      <span className="text-xs font-semibold text-muted-foreground">Insert saved snippet</span>
+      <span className="text-xs font-semibold text-muted-foreground">Insert snippet into {targetLabel}</span>
       <select
+        aria-label={`Insert snippet into ${targetLabel}`}
         className="h-10 w-full rounded-xl border border-border/70 bg-background px-3 text-sm font-medium text-foreground outline-none transition focus:ring-2 focus:ring-primary/20"
-        defaultValue=""
+        value={selectedSnippetId}
         onChange={(event) => {
-          const snippet = snippets.find((item) => item.id === event.target.value);
+          const nextSnippetId = event.target.value;
+          setSelectedSnippetId(nextSnippetId);
+          const snippet = snippets.find((item) => item.id === nextSnippetId);
           if (snippet) {
             onInsert(snippet.text);
-            toast.success("Snippet inserted");
+            toast.success(`Snippet inserted into ${targetLabel}`);
           }
-          event.target.value = "";
+          setSelectedSnippetId("");
         }}
       >
-        <option value="">Choose a saved snippet</option>
+        <option value="">Choose a snippet for {targetLabel}</option>
         {snippets.map((snippet) => <option key={snippet.id} value={snippet.id}>{snippet.title}</option>)}
       </select>
     </label>

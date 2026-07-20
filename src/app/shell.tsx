@@ -1,6 +1,6 @@
 import { Link, Navigate, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, Bookmark, CalendarDays, CirclePlus, ClipboardList, FileText, Home, LayoutDashboard, LogOut, Mail, Menu, Moon, PanelLeftClose, PanelLeftOpen, Search, Settings, Sun, Users, X } from "lucide-react";
+import { Activity, Bell, Bookmark, CalendarDays, CirclePlus, ClipboardList, FileText, Home, LayoutDashboard, LogOut, Mail, Menu, Moon, PanelLeftClose, PanelLeftOpen, Search, Settings, Sun, Users, X } from "lucide-react";
 import type { ComponentType, MutableRefObject } from "react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -13,6 +13,7 @@ import { readNotificationSettings } from "@/lib/notification-settings";
 
 const quickLinks = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, shortcut: "D" },
+  { to: "/overview", label: "Overview", icon: Activity },
   { to: "/clients", label: "Clients", icon: Users, shortcut: "C" },
   { to: "/mailbox", label: "Mailbox", icon: Mail, shortcut: "M" },
   { to: "/snippets", label: "Snippets", icon: ClipboardList, shortcut: "S" },
@@ -310,7 +311,7 @@ export function AppShell() {
 }
 
 function isMobileNavActive(key: typeof mobileNav[number]["key"], pathname: string, search: string) {
-  if (key === "dashboard") return pathname === "/";
+  if (key === "dashboard") return pathname === "/" || pathname === "/overview";
   if (key === "clients") return pathname.startsWith("/clients");
   if (key === "mailbox") return pathname.startsWith("/mailbox");
   if (key === "snippets") return pathname.startsWith("/snippets");
@@ -356,7 +357,19 @@ function SidebarContent({
         </div>
       ) : null}
       <nav className={cn("scrollbar-hide flex-1 overflow-y-auto transition-all", compact ? "space-y-4 px-3 py-4" : collapsed ? "space-y-4 px-3 py-5" : "space-y-6 px-4 py-6")}>
-        <InvoiceNavGroup title="" items={[{ to: "/", label: "Dashboard", icon: Home }]} activePath={activePath} activeSearch={activeSearch} collapsed={collapsed} compact={compact} onNavigate={onNavigate} activeLinkRef={activeLinkRef} />
+        <InvoiceNavGroup
+          title=""
+          items={[
+            { to: "/", label: "Dashboard", icon: Home },
+            { to: "/overview", label: "Overview", icon: Activity }
+          ]}
+          activePath={activePath}
+          activeSearch={activeSearch}
+          collapsed={collapsed}
+          compact={compact}
+          onNavigate={onNavigate}
+          activeLinkRef={activeLinkRef}
+        />
         <InvoiceNavGroup
           title="Work"
           items={[
@@ -435,6 +448,7 @@ function SidebarContent({
 
 function currentPageTitle(pathname: string) {
   if (pathname === "/") return "Dashboard";
+  if (pathname === "/overview") return "Overview";
   if (pathname.startsWith("/clients")) return "Clients";
   if (pathname.startsWith("/mailbox")) return "Mailbox";
   if (pathname.startsWith("/snippets")) return "Snippets";
