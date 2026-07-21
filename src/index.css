@@ -21,6 +21,11 @@
     --border: 240 6% 90%;
     --input: 240 6% 90%;
     --ring: 355 88% 50%;
+    --motion-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+    --motion-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
+    --motion-fast: 180ms;
+    --motion-base: 280ms;
+    --motion-slow: 420ms;
   }
 
   .dark {
@@ -47,9 +52,19 @@
     @apply border-border;
   }
 
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
     @apply bg-background text-foreground antialiased overflow-x-hidden;
     letter-spacing: 0;
+  }
+
+  :where(button, a, [role="button"], input, select, textarea) {
+    transition-property: color, background-color, border-color, box-shadow, opacity, transform, filter;
+    transition-duration: var(--motion-fast);
+    transition-timing-function: var(--motion-standard);
   }
 }
 
@@ -62,8 +77,69 @@
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
+
+  .motion-standard {
+    transition-duration: var(--motion-base);
+    transition-timing-function: var(--motion-standard);
+  }
+
+  .motion-emphasized {
+    transition-duration: var(--motion-slow);
+    transition-timing-function: var(--motion-emphasized);
+  }
+
+  .content-swap {
+    animation: content-swap var(--motion-base) var(--motion-emphasized) both;
+  }
+
+  .smooth-collapse {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    visibility: hidden;
+    transition:
+      grid-template-rows 300ms var(--motion-standard),
+      opacity 220ms var(--motion-standard),
+      visibility 0s linear 300ms;
+  }
+
+  .smooth-collapse[data-open="true"] {
+    grid-template-rows: 1fr;
+    opacity: 1;
+    visibility: visible;
+    transition:
+      grid-template-rows 400ms var(--motion-emphasized),
+      opacity 280ms var(--motion-standard),
+      visibility 0s linear 0s;
+  }
 }
 
 .page-enter {
-  animation: slide-up 420ms cubic-bezier(.2,.8,.2,1);
+  animation: slide-up var(--motion-slow) var(--motion-emphasized);
+}
+
+@keyframes content-swap {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }

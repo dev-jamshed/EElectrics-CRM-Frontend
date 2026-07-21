@@ -41,8 +41,14 @@ export function DateRangePicker({
           <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="truncate">{label}</span>
         </PopoverTrigger>
-        <PopoverContent className="w-auto border-border bg-card p-0 shadow-apple" align="end">
-          <div className="grid gap-2 border-b border-border/60 p-3 sm:grid-cols-4">
+        <PopoverContent
+          align="end"
+          side="bottom"
+          sideOffset={10}
+          collisionPadding={16}
+          className="z-[80] flex max-h-[min(42rem,var(--radix-popover-content-available-height))] w-[min(calc(100vw-2rem),46rem)] flex-col overflow-hidden border-border bg-card p-0 shadow-apple"
+        >
+          <div className="relative z-20 grid shrink-0 grid-cols-2 gap-2 border-b border-border/60 bg-card p-3 sm:grid-cols-4">
             {[
               { label: "Today", range: todayRange() },
               { label: "Last 7", range: { from: subDays(new Date(), 6), to: new Date() } },
@@ -62,15 +68,17 @@ export function DateRangePicker({
               </button>
             ))}
           </div>
-          <Calendar
-            mode="range"
-            selected={value}
-            onSelect={(range) => onChange(normalizeRange(range))}
-            numberOfMonths={2}
-            className="hidden sm:block"
-          />
-          <Calendar mode="range" selected={value} onSelect={(range) => onChange(normalizeRange(range))} numberOfMonths={1} className="sm:hidden" />
-          <div className="flex items-center justify-between gap-2 border-t border-border/60 p-3">
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <Calendar
+              mode="range"
+              selected={value}
+              onSelect={(range) => onChange(normalizeRange(range))}
+              numberOfMonths={2}
+              className="hidden sm:block"
+            />
+            <Calendar mode="range" selected={value} onSelect={(range) => onChange(normalizeRange(range))} numberOfMonths={1} className="sm:hidden" />
+          </div>
+          <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border/60 p-3">
             <Button type="button" variant="ghost" size="sm" className="rounded-xl" onClick={() => onChange(undefined)}>
               Clear
             </Button>

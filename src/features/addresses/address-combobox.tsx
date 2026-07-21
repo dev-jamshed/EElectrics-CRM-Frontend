@@ -2,10 +2,11 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { crmApi } from "@/lib/api";
 import { Input } from "@/components/ui/input";
+import type { AddressSuggestion } from "@/types/crm";
 
 type AddressComboboxProps = {
   value: string;
-  onChange: (value: string, selected?: unknown) => void;
+  onChange: (value: string, selected?: AddressSuggestion) => void;
   lookupQuery?: string;
   lookupNonce?: number;
   inputClassName?: string;
@@ -16,10 +17,12 @@ export function AddressCombobox({ value, onChange, lookupQuery, lookupNonce, inp
   const [query, setQuery] = useState(value);
   const [open, setOpen] = useState(false);
   const [showEmptyState, setShowEmptyState] = useState(false);
-  const { data = [], isFetching } = useQuery({
-    queryKey: ["addresses", query],
-    queryFn: () => crmApi.addresses(query),
-    enabled: query.length > 1
+  const normalizedQuery = query.trim();
+  const { data = [], isFetching, isError } = useQuery({
+    queryKey: ["addresses", normalizedQuery, lookupNonce ?? 0],
+    queryFn: () => crmApi.addresses(normalizedQuery),
+    enabled: normalizedQuery.length > 1,
+    retry: 1
   });
 
   useEffect(() => {
@@ -68,7 +71,7 @@ export function AddressCombobox({ value, onChange, lookupQuery, lookupNonce, inp
       {open && query.length > 1 ? (
         <div className="relative z-20 mt-2 max-h-60 w-full overflow-x-hidden overflow-y-auto overscroll-contain rounded-lg border border-border bg-popover text-popover-foreground shadow-lg" role="listbox" aria-label="Address suggestions">
           {isFetching ? <div className="px-3 py-2 text-sm text-muted-foreground">Loading addresses...</div> : null}
-          {!isFetching && data.length > 0
+          {!isFetching && !isError && data.length > 0
             ? data.map((item) => (
                 <button
                   key={item.id}
@@ -83,11 +86,13 @@ export function AddressCombobox({ value, onChange, lookupQuery, lookupNonce, inp
                   }}
                 >
                   <span className="min-w-0 break-words font-medium">{item.label}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground">{item.source}</span>
                 </button>
               ))
             : null}
-          {!isFetching && showEmptyState && data.length === 0 ? (
+          {!isFetching && isError ? (
+            <div className="px-3 py-2 text-sm text-primary">Address lookup failed. Please try again.</div>
+          ) : null}
+          {!isFetching && !isError && showEmptyState && data.length === 0 ? (
             <div className="px-3 py-2 text-sm text-muted-foreground">No addresses found</div>
           ) : null}
         </div>

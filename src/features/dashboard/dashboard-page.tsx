@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { endOfMonth, endOfQuarter, format, isWithinInterval, startOfMonth, startOfQuarter, subDays, subMonths, subQuarters } from "date-fns";
 import type { DateRange } from "react-day-picker";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Area, Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
@@ -136,32 +136,22 @@ export function DashboardPage() {
         </div>
       </div>
 
-      <section className="rounded-[1.35rem] border border-border/40 bg-card/75 p-2 shadow-apple backdrop-blur-xl">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <h2 className="px-2 pt-1 text-xl font-semibold tracking-tight text-foreground sm:text-2xl lg:px-2 lg:pt-0">Overview</h2>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <div className="grid w-full grid-cols-3 rounded-2xl border border-white/50 bg-card/40 p-1 shadow-inner backdrop-blur-xl sm:flex sm:w-auto">
-              {[
-                ["currentMonth", "Current Month"],
-                ["lastMonth", "Last Month"],
-                ["lastQuarter", "Last Quarter"]
-              ].map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => updatePeriod(value as DashboardPeriod)}
-                  className={cn(
-                    "h-11 rounded-xl px-2 text-[11px] font-semibold transition sm:px-5 sm:text-sm",
-                    period === value
-                      ? "bg-[linear-gradient(135deg,hsl(var(--primary)),#ff4b5f)] text-primary-foreground shadow-sm shadow-primary/20"
-                      : "text-muted-foreground hover:bg-card/50 hover:text-foreground"
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <div className="w-full min-w-0 sm:w-auto">
+      <section className="rounded-[1.35rem] border border-border/40 bg-card/75 p-2.5 shadow-apple backdrop-blur-xl sm:p-3">
+        <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <h2 className="px-1 text-xl font-semibold tracking-tight text-foreground sm:text-2xl xl:px-0">Overview</h2>
+          <div className="flex min-w-0 flex-col gap-2 md:flex-row md:flex-wrap md:items-center md:justify-end">
+            <SlidingSegmentedControl
+              value={period}
+              items={[
+                { value: "currentMonth", label: "Current Month" },
+                { value: "lastMonth", label: "Last Month" },
+                { value: "lastQuarter", label: "Last Quarter" }
+              ]}
+              onChange={(value) => updatePeriod(value as DashboardPeriod)}
+              size="period"
+              ariaLabel="Dashboard period"
+            />
+            <div className="w-full min-w-0 md:w-auto">
               <DashboardDateRange
                 value={dateRange}
                 onChange={(value) => {
@@ -191,30 +181,20 @@ export function DashboardPage() {
                 <h2 className="text-base font-semibold text-foreground">Daily Work Queue</h2>
                 <p className="text-sm text-muted-foreground">Bookings, invoices and quotations needing attention.</p>
               </div>
-              <div className="grid grid-cols-2 gap-1 rounded-2xl bg-secondary/50 p-1 backdrop-blur-md sm:inline-flex sm:grid-cols-none">
-                {[
-                  ["ALL", "All"],
-                  ["BOOKING", "Bookings"],
-                  ["INVOICE", "Invoices"],
-                  ["QUOTATION", "Quotes"]
-                ].map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setQueueType(value as "ALL" | "BOOKING" | "INVOICE" | "QUOTATION")}
-                    className={cn(
-                      "h-9 rounded-xl px-3 text-xs font-semibold transition-all duration-200 sm:h-8",
-                      queueType === value
-                        ? "bg-card text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+              <SlidingSegmentedControl
+                value={queueType}
+                items={[
+                  { value: "ALL", label: "All" },
+                  { value: "BOOKING", label: "Bookings" },
+                  { value: "INVOICE", label: "Invoices" },
+                  { value: "QUOTATION", label: "Quotes" }
+                ]}
+                onChange={(value) => setQueueType(value as "ALL" | "BOOKING" | "INVOICE" | "QUOTATION")}
+                size="compact"
+                ariaLabel="Work queue type"
+              />
             </div>
-            <div className="hidden overflow-x-auto lg:block">
+            <div key={`desktop-${queueType}`} className="content-swap hidden overflow-x-auto lg:block">
               <table className="w-full min-w-[720px] text-left text-sm">
                 <thead className="border-b border-border/40 bg-secondary/30 text-xs text-muted-foreground">
                   <tr>
@@ -261,7 +241,7 @@ export function DashboardPage() {
                 </tbody>
               </table>
             </div>
-            <div className="space-y-3 p-3 sm:p-4 lg:hidden">
+            <div key={`mobile-${queueType}`} className="content-swap space-y-3 p-3 sm:p-4 lg:hidden">
               {workQueue.length ? (
                 workQueue.map((doc) => (
                   <Link key={doc.id} to={`/documents/${doc.id}`} className="block rounded-2xl border border-border/50 bg-background/75 p-3 shadow-sm transition hover:border-primary/30 hover:bg-background sm:p-4">
@@ -298,7 +278,7 @@ export function DashboardPage() {
               <h2 className="text-base font-semibold text-foreground">Mailbox</h2>
               {mailboxCount ? (
                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground shadow-sm">
-                  {mailboxCount}
+                  <AnimatedNumber value={mailboxCount} />
                 </span>
               ) : null}
             </div>
@@ -524,6 +504,105 @@ function WorkflowAnalysisCard({ data }: { data: { name: string; draft: number; a
   );
 }
 
+function SlidingSegmentedControl({
+  items,
+  value,
+  onChange,
+  size,
+  ariaLabel
+}: {
+  items: { value: string; label: string }[];
+  value: string;
+  onChange: (value: string) => void;
+  size: "period" | "compact";
+  ariaLabel: string;
+}) {
+  const activeIndex = items.findIndex((item) => item.value === value);
+  const compact = size === "compact";
+
+  return (
+    <div
+      className={cn(
+        "relative grid w-full min-w-0 overflow-hidden rounded-2xl border border-white/50 bg-secondary/45 p-1 shadow-inner backdrop-blur-xl dark:border-white/5",
+        compact ? "sm:w-[390px]" : "sm:w-[470px]"
+      )}
+      style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
+      role="tablist"
+      aria-label={ariaLabel}
+    >
+      <span
+        data-segment-indicator
+        className={cn(
+          "pointer-events-none absolute inset-y-1 left-1 rounded-xl bg-[linear-gradient(135deg,hsl(var(--primary)),#ff4b5f)] shadow-sm shadow-primary/25 transition-[transform,opacity] duration-420 ease-emphasized",
+          activeIndex < 0 && "opacity-0"
+        )}
+        style={{
+          width: `calc((100% - 0.5rem) / ${items.length})`,
+          transform: `translateX(${Math.max(activeIndex, 0) * 100}%)`
+        }}
+      />
+      {items.map((item) => {
+        const active = item.value === value;
+        return (
+          <button
+            key={item.value}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(item.value)}
+            className={cn(
+              "relative z-10 min-w-0 rounded-xl px-1 font-semibold transition-[color,transform] duration-300 ease-smooth active:scale-[0.98]",
+              compact ? "h-9 text-[10px] sm:h-10 sm:px-3 sm:text-xs" : "h-11 text-[10px] sm:px-4 sm:text-sm",
+              active ? "text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <span className="block truncate">{item.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function AnimatedNumber({ value, formatter = (number) => String(number) }: { value: number; formatter?: (value: number) => string }) {
+  const displayed = useCountUp(value);
+  return <>{formatter(displayed)}</>;
+}
+
+function useCountUp(target: number, duration = 850) {
+  const [displayed, setDisplayed] = useState(0);
+  const currentRef = useRef(0);
+
+  useEffect(() => {
+    if (!Number.isFinite(target)) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      currentRef.current = target;
+      setDisplayed(target);
+      return;
+    }
+
+    const startValue = currentRef.current;
+    const difference = target - startValue;
+    const startedAt = performance.now();
+    let frame = 0;
+
+    const tick = (now: number) => {
+      const progress = Math.min((now - startedAt) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const next = startValue + difference * eased;
+      currentRef.current = next;
+      setDisplayed(Math.round(next));
+      if (progress < 1) frame = requestAnimationFrame(tick);
+      else currentRef.current = target;
+    };
+
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [duration, target]);
+
+  return displayed;
+}
+
 function KpiCard({
   label,
   value,
@@ -549,7 +628,9 @@ function KpiCard({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <div className="truncate text-xs font-medium text-muted-foreground sm:text-sm">{label}</div>
-          <div className="mt-2 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">{value}</div>
+          <div className="mt-2 text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+            {typeof value === "number" ? <AnimatedNumber value={value} /> : value}
+          </div>
         </div>
         <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border sm:h-12 sm:w-12", tones[tone])}>
           <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
@@ -608,17 +689,40 @@ function DashboardDateRange({
         }}
       >
         <PopoverTrigger
-            type="button"
-            className="inline-flex h-11 min-w-0 flex-1 items-center justify-start gap-2 rounded-2xl border border-border/60 bg-card px-3 text-left text-xs font-semibold shadow-sm outline-none transition hover:bg-secondary focus:ring-2 focus:ring-ring/30 sm:w-[310px] sm:flex-none sm:text-sm"
-          >
-            <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span className="truncate">{label}</span>
+          type="button"
+          className="inline-flex h-11 min-w-0 flex-1 items-center justify-start gap-2 rounded-2xl border border-border/60 bg-card px-3 text-left text-xs font-semibold shadow-sm outline-none transition hover:bg-secondary focus:ring-2 focus:ring-ring/30 sm:w-[310px] sm:flex-none sm:text-sm"
+        >
+          <CalendarDays className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="truncate">{label}</span>
         </PopoverTrigger>
-        <PopoverContent align="end" className="w-[calc(100vw-2rem)] border-border bg-card p-0 shadow-apple sm:w-auto">
-          <div className="border-b border-border/60 px-4 py-3">
+        <PopoverContent
+          align="end"
+          side="bottom"
+          sideOffset={10}
+          collisionPadding={16}
+          className="z-[80] flex max-h-[min(42rem,var(--radix-popover-content-available-height))] w-[min(calc(100vw-2rem),46rem)] flex-col overflow-hidden border-border bg-card p-0 shadow-apple"
+        >
+          <div className="shrink-0 border-b border-border/60 px-4 py-3">
             <div className="text-sm font-semibold text-foreground">Select date range</div>
             <div className="mt-1 text-xs text-muted-foreground">
               {selected?.from ? format(selected.from, "dd MMM yyyy") : "Start date"} - {selected?.to ? format(selected.to, "dd MMM yyyy") : "End date"}
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {[
+                { label: "Today", range: todayDashboardRange() },
+                { label: "Last 7", range: { from: startOfDayDate(subDays(new Date(), 6)), to: endOfDayDate(new Date()) } },
+                { label: "Last 30", range: { from: startOfDayDate(subDays(new Date(), 29)), to: endOfDayDate(new Date()) } },
+                { label: "Month", range: { from: startOfDayDate(startOfMonth(new Date())), to: endOfDayDate(endOfMonth(new Date())) } }
+              ].map((preset) => (
+                <button
+                  key={preset.label}
+                  type="button"
+                  className="rounded-xl bg-secondary px-3 py-2 text-xs font-semibold text-secondary-foreground transition hover:bg-secondary/75 focus:outline-none focus:ring-2 focus:ring-ring/30"
+                  onClick={() => setDraft(preset.range)}
+                >
+                  {preset.label}
+                </button>
+              ))}
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
               <label className="space-y-1">
@@ -653,21 +757,23 @@ function DashboardDateRange({
               </label>
             </div>
           </div>
-          <Calendar
-            mode="range"
-            selected={selected}
-            onSelect={(range) => setDraft(normalizeDashboardRange(range))}
-            numberOfMonths={2}
-            className="hidden sm:block"
-          />
-          <Calendar
-            mode="range"
-            selected={selected}
-            onSelect={(range) => setDraft(normalizeDashboardRange(range))}
-            numberOfMonths={1}
-            className="sm:hidden"
-          />
-          <div className="flex items-center justify-between gap-2 border-t border-border/60 p-3">
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <Calendar
+              mode="range"
+              selected={selected}
+              onSelect={(range) => setDraft(normalizeDashboardRange(range))}
+              numberOfMonths={2}
+              className="hidden sm:block"
+            />
+            <Calendar
+              mode="range"
+              selected={selected}
+              onSelect={(range) => setDraft(normalizeDashboardRange(range))}
+              numberOfMonths={1}
+              className="sm:hidden"
+            />
+          </div>
+          <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border/60 p-3">
             <Button
               type="button"
               variant="ghost"
@@ -751,9 +857,9 @@ function RevenueSnapshotChart({
       <div className="mt-6 overflow-hidden rounded-2xl border border-border/40 bg-background/55 p-3 sm:p-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="inline-flex items-center gap-2 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-            {collectionRate}% collected
+            <AnimatedNumber value={collectionRate} />% collected
           </div>
-          <div className="text-xs font-medium text-muted-foreground">{chartRows.reduce((sum, item) => sum + item.records, 0)} invoice record(s)</div>
+          <div className="text-xs font-medium text-muted-foreground"><AnimatedNumber value={chartRows.reduce((sum, item) => sum + item.records, 0)} /> invoice record(s)</div>
         </div>
         <div className="h-[240px] min-w-0 sm:h-[320px]">
           <ResponsiveContainer width="100%" height="100%">
@@ -823,7 +929,7 @@ function RevenueMetric({ label, value, tone }: { label: string; value: number; t
     <div className={cn("relative min-w-0 overflow-hidden rounded-xl border p-2.5 transition-all sm:p-5", toneClass)}>
       <div className="relative z-10">
         <div className="truncate text-[9px] font-semibold uppercase tracking-wider opacity-70 sm:text-[11px]">{label}</div>
-        <div className="mt-1 break-words text-sm font-bold tracking-tight [overflow-wrap:anywhere] sm:mt-2 sm:text-3xl">{compactCurrency(value)}</div>
+        <div className="mt-1 break-words text-sm font-bold tracking-tight [overflow-wrap:anywhere] sm:mt-2 sm:text-3xl"><AnimatedNumber value={value} formatter={compactCurrency} /></div>
       </div>
       <div className="absolute inset-0 z-0 bg-white/40 opacity-0 transition-opacity hover:opacity-100 dark:bg-black/10" />
     </div>
@@ -949,6 +1055,11 @@ function endOfDayDate(date: Date) {
   const next = new Date(date);
   next.setHours(23, 59, 59, 999);
   return next;
+}
+
+function todayDashboardRange() {
+  const today = new Date();
+  return { from: startOfDayDate(today), to: endOfDayDate(today) };
 }
 
 function normalizeDashboardRange(range: DateRange | undefined) {

@@ -51,6 +51,7 @@ type DataTableProps<T> = {
   desktopAt?: "md" | "lg";
   tableMinWidth?: string;
   compactDesktop?: boolean;
+  naturalPageScroll?: boolean;
 };
 
 export function DataTable<T>({
@@ -69,7 +70,8 @@ export function DataTable<T>({
   emptyText = "No records found.",
   desktopAt = "md",
   tableMinWidth = "920px",
-  compactDesktop = false
+  compactDesktop = false,
+  naturalPageScroll = false
 }: DataTableProps<T>) {
   const [globalFilter, setGlobalFilter] = useState("");
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -257,8 +259,8 @@ export function DataTable<T>({
       </div>
 
       <div className={desktopTableClass}>
-        <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm" style={{ minWidth: tableMinWidth }}>
+        <div className={naturalPageScroll ? "overflow-visible" : "overflow-x-auto"}>
+        <table className="w-full text-left text-sm" style={{ minWidth: naturalPageScroll ? "100%" : tableMinWidth }}>
           <thead className="bg-secondary/50 text-xs font-semibold uppercase text-muted-foreground">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
@@ -286,9 +288,9 @@ export function DataTable<T>({
                   <tr
                     className={renderExpandedRow
                       ? row.getIsExpanded()
-                        ? "cursor-pointer bg-primary/[0.055] shadow-[inset_3px_0_0_hsl(var(--primary))] transition hover:bg-primary/[0.075]"
-                        : "cursor-pointer transition hover:bg-secondary/40"
-                      : "transition hover:bg-secondary/40"}
+                        ? "cursor-pointer bg-primary/[0.055] shadow-[inset_3px_0_0_hsl(var(--primary))] transition-all duration-300 ease-smooth hover:bg-primary/[0.075]"
+                        : "cursor-pointer transition-all duration-300 ease-smooth hover:bg-secondary/40"
+                      : "transition-all duration-300 ease-smooth hover:bg-secondary/40"}
                     onClick={(event) => {
                       if (!renderExpandedRow || (event.target as HTMLElement).closest("a, button, input, select, textarea")) return;
                       row.toggleExpanded();
@@ -306,7 +308,7 @@ export function DataTable<T>({
                             row.toggleExpanded();
                           }}
                         >
-                          <ChevronRight className={row.getIsExpanded() ? "h-4 w-4 rotate-90 transition-transform" : "h-4 w-4 transition-transform"} />
+                          <ChevronRight className={row.getIsExpanded() ? "h-4 w-4 rotate-90 transition-transform duration-300 ease-emphasized" : "h-4 w-4 transition-transform duration-300 ease-emphasized"} />
                         </button>
                       </td>
                     ) : null}
@@ -316,10 +318,14 @@ export function DataTable<T>({
                       </td>
                     ))}
                   </tr>
-                  {renderExpandedRow && row.getIsExpanded() ? (
-                    <tr className="bg-primary/[0.025]">
-                      <td colSpan={columns.length + 1} className="border-x border-b border-t border-primary/35 p-0 shadow-[inset_3px_0_0_hsl(var(--primary))]">
-                        {renderExpandedRow(row.original)}
+                  {renderExpandedRow ? (
+                    <tr className={row.getIsExpanded() ? "bg-primary/[0.025]" : "h-0 bg-transparent"} aria-hidden={!row.getIsExpanded()}>
+                      <td colSpan={columns.length + 1} className={row.getIsExpanded() ? "border-x border-b border-t border-primary/35 p-0 shadow-[inset_3px_0_0_hsl(var(--primary))]" : "border-0 p-0"}>
+                        <div className="smooth-collapse" data-open={row.getIsExpanded()}>
+                          <div className="overflow-hidden">
+                            {renderExpandedRow(row.original)}
+                          </div>
+                        </div>
                       </td>
                     </tr>
                   ) : null}
@@ -340,7 +346,7 @@ export function DataTable<T>({
       <div className={mobileRowsClass}>
         {table.getRowModel().rows.length ? (
           table.getRowModel().rows.map((row) => (
-            <article key={row.id} className={row.getIsExpanded() ? "overflow-hidden rounded-2xl border border-primary/50 bg-card shadow-[0_12px_30px_hsl(var(--primary)/0.12)] ring-1 ring-primary/15" : "overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm"}>
+            <article key={row.id} className={row.getIsExpanded() ? "overflow-hidden rounded-2xl border border-primary/50 bg-card shadow-[0_12px_30px_hsl(var(--primary)/0.12)] ring-1 ring-primary/15 transition-all duration-300 ease-smooth" : "overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm transition-all duration-300 ease-smooth"}>
               <div
                 className={renderExpandedRow ? "cursor-pointer p-4" : "p-4"}
                 onClick={(event) => {
@@ -374,7 +380,7 @@ export function DataTable<T>({
                 <div className="flex items-center justify-end gap-2 border-t border-border/60 bg-background/45 px-3 py-2.5">
                   {renderExpandedRow ? (
                     <Button type="button" size="sm" variant="ghost" className="mr-auto h-9 rounded-xl px-3 text-muted-foreground" onClick={() => row.toggleExpanded()}>
-                      Details <ChevronDown className={row.getIsExpanded() ? "h-4 w-4 rotate-180 transition-transform" : "h-4 w-4 transition-transform"} />
+                      Details <ChevronDown className={row.getIsExpanded() ? "h-4 w-4 rotate-180 transition-transform duration-300 ease-emphasized" : "h-4 w-4 transition-transform duration-300 ease-emphasized"} />
                     </Button>
                   ) : null}
                   {getMobileActions ? getMobileActions(row.original) : null}
@@ -387,7 +393,15 @@ export function DataTable<T>({
                   ) : null}
                 </div>
               ) : null}
-              {renderExpandedRow && row.getIsExpanded() ? <div className="border-t border-primary/30 bg-primary/[0.025]">{renderExpandedRow(row.original)}</div> : null}
+              {renderExpandedRow ? (
+                <div
+                  className={row.getIsExpanded() ? "smooth-collapse border-t border-primary/30 bg-primary/[0.025]" : "smooth-collapse border-t border-transparent bg-transparent"}
+                  data-open={row.getIsExpanded()}
+                  aria-hidden={!row.getIsExpanded()}
+                >
+                  <div className="overflow-hidden">{renderExpandedRow(row.original)}</div>
+                </div>
+              ) : null}
             </article>
           ))
         ) : (

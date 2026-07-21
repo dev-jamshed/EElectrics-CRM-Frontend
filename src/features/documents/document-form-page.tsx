@@ -47,7 +47,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input, Textarea } from "@/components/ui/input";
-import type { Attachment, Client, DocumentRecord, DocumentType, LineItem } from "@/types/crm";
+import type { AddressSuggestion, Attachment, Client, DocumentRecord, DocumentType, LineItem } from "@/types/crm";
 
 const includeChoices = [
   { value: "labour", label: "Labour" },
@@ -1077,7 +1077,7 @@ export function DocumentFormPage() {
                     <span className={fieldLabelClass}>Address</span>
                     <AddressCombobox
                       value={form.addressLine}
-                      onChange={(value, selected) => setForm({ ...form, addressLine: value, selectedAddress: selected })}
+                      onChange={(value, selected?: AddressSuggestion) => setForm({ ...form, addressLine: value, postalCode: selected?.postcode ?? form.postalCode, selectedAddress: selected })}
                       lookupQuery={addressLookup.query}
                       lookupNonce={addressLookup.nonce}
                       inputClassName={formInputClass}
@@ -1308,7 +1308,7 @@ export function DocumentFormPage() {
                     <span className={fieldLabelClass}>Address</span>
                     <AddressCombobox
                       value={form.addressLine}
-                      onChange={(value, selected) => setForm({ ...form, addressLine: value, selectedAddress: selected })}
+                      onChange={(value, selected?: AddressSuggestion) => setForm({ ...form, addressLine: value, postalCode: selected?.postcode ?? form.postalCode, selectedAddress: selected })}
                       lookupQuery={addressLookup.query}
                       lookupNonce={addressLookup.nonce}
                       inputClassName={formInputClass}
@@ -1470,7 +1470,7 @@ export function DocumentFormPage() {
               <div className="min-w-0 flex-1">
                 <AddressCombobox
                   value={form.addressLine}
-                  onChange={(value, selected) => setForm({ ...form, addressLine: value, selectedAddress: selected })}
+                  onChange={(value, selected?: AddressSuggestion) => setForm({ ...form, addressLine: value, postalCode: selected?.postcode ?? form.postalCode, selectedAddress: selected })}
                   lookupQuery={addressLookup.query}
                   lookupNonce={addressLookup.nonce}
                 />

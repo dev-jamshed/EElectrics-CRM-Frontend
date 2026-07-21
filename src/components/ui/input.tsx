@@ -5,7 +5,7 @@ export function Input({ className, ...props }: React.InputHTMLAttributes<HTMLInp
   return (
     <input
       className={cn(
-        "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm transition focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50",
+        "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm transition-[border-color,box-shadow,background-color] duration-200 ease-out focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50",
         className
       )}
       {...props}
@@ -17,11 +17,10 @@ export function Textarea({ className, ...props }: React.TextareaHTMLAttributes<H
   return (
     <textarea
       className={cn(
-        "min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm transition focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50",
+        "min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm transition-[border-color,box-shadow,background-color] duration-200 ease-out focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50",
         className
       )}
       {...props}
     />
   );
 }
-

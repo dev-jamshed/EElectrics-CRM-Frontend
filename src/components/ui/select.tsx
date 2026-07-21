@@ -5,11 +5,10 @@ export function Select({ className, ...props }: React.SelectHTMLAttributes<HTMLS
   return (
     <select
       className={cn(
-        "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm transition focus:outline-none focus:ring-2 focus:ring-ring",
+        "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm transition-[border-color,box-shadow,background-color] duration-200 ease-out focus:outline-none focus:ring-2 focus:ring-ring",
         className
       )}
       {...props}
     />
   );
 }
-

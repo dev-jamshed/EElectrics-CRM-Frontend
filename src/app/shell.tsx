@@ -180,7 +180,7 @@ export function AppShell() {
   return (
     <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary/20">
       <aside className={cn(
-        "fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-primary/10 bg-[linear-gradient(160deg,hsl(var(--card)/0.92)_0%,hsl(var(--primary)/0.075)_48%,hsl(var(--card)/0.82)_100%)] shadow-sm backdrop-blur-xl transition-[width] duration-300 md:flex",
+        "fixed inset-y-0 left-0 z-30 hidden flex-col border-r border-primary/10 bg-[linear-gradient(160deg,hsl(var(--card)/0.92)_0%,hsl(var(--primary)/0.075)_48%,hsl(var(--card)/0.82)_100%)] shadow-sm backdrop-blur-xl transition-[width] duration-300 ease-emphasized md:flex",
         sidebarCollapsed ? "w-[92px]" : "w-[280px]"
       )}>
         <SidebarContent
@@ -194,9 +194,9 @@ export function AppShell() {
         />
       </aside>
 
-      <div className={cn("fixed inset-0 z-50 transition-[visibility] duration-300 md:hidden", mobileOpen ? "visible pointer-events-auto" : "invisible pointer-events-none")} aria-hidden={!mobileOpen}>
-          <button type="button" className={cn("absolute inset-0 bg-black/45 backdrop-blur-[2px] transition-opacity duration-300", mobileOpen ? "opacity-100" : "opacity-0")} onClick={() => setMobileOpen(false)} aria-label="Close menu" />
-          <aside className={cn("absolute inset-y-0 left-0 flex w-[88vw] max-w-[360px] flex-col border-r border-primary/15 bg-card shadow-2xl transition-transform duration-300 ease-out dark:bg-card", mobileOpen ? "translate-x-0" : "-translate-x-full")}>
+      <div className={cn("fixed inset-0 z-50 transition-[visibility] duration-300 ease-smooth md:hidden", mobileOpen ? "visible pointer-events-auto" : "invisible pointer-events-none")} aria-hidden={!mobileOpen}>
+          <button type="button" className={cn("absolute inset-0 bg-black/45 backdrop-blur-[2px] transition-opacity duration-300 ease-smooth", mobileOpen ? "opacity-100" : "opacity-0")} onClick={() => setMobileOpen(false)} aria-label="Close menu" />
+          <aside className={cn("absolute inset-y-0 left-0 flex w-[88vw] max-w-[360px] flex-col border-r border-primary/15 bg-card shadow-2xl transition-transform duration-300 ease-emphasized dark:bg-card", mobileOpen ? "translate-x-0" : "-translate-x-full")}>
             <div className="flex h-[76px] items-center justify-between border-b border-border/70 bg-[linear-gradient(110deg,hsl(var(--card)),hsl(var(--primary)/0.07))] px-4">
               <BrandLogo compact />
               <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full border border-border/60 bg-background/80" onClick={() => setMobileOpen(false)}>
@@ -215,7 +215,7 @@ export function AppShell() {
           </aside>
         </div>
 
-      <main className={cn("transition-[padding] duration-300", sidebarCollapsed ? "md:pl-[92px]" : "md:pl-[280px]")}>
+      <main className={cn("transition-[padding] duration-300 ease-emphasized", sidebarCollapsed ? "md:pl-[92px]" : "md:pl-[280px]")}>
         <header className="sticky top-0 z-20 flex h-[72px] items-center justify-between border-b border-primary/10 bg-[linear-gradient(100deg,hsl(var(--background)/0.84),hsl(var(--primary)/0.075),hsl(var(--background)/0.78))] px-4 shadow-sm backdrop-blur-xl sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
             <Button variant="ghost" size="icon" className="rounded-full md:hidden" onClick={() => setMobileOpen(true)}>
@@ -259,7 +259,7 @@ export function AppShell() {
             </Button>
           </div>
         </header>
-        <div className="page-enter px-4 pb-24 pt-5 sm:p-6 md:p-8">
+        <div key={`${location.pathname}${location.search}`} className="page-enter px-4 pb-24 pt-5 sm:p-6 md:p-8">
           <Outlet />
         </div>
       </main>
@@ -267,7 +267,7 @@ export function AppShell() {
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border/70 bg-card/95 px-1.5 pb-[max(env(safe-area-inset-bottom),0.45rem)] pt-1.5 shadow-[0_-12px_32px_rgba(15,23,42,0.12)] backdrop-blur-xl md:hidden">
         <div className="relative grid grid-cols-5">
           {activeMobileIndex >= 0 ? (
-            <span className="pointer-events-none absolute inset-y-0 left-0 w-1/5 p-0.5 transition-transform duration-300 ease-out" style={{ transform: `translateX(${activeMobileIndex * 100}%)` }}>
+            <span className="pointer-events-none absolute inset-y-0 left-0 w-1/5 p-0.5 transition-transform duration-300 ease-emphasized" style={{ transform: `translateX(${activeMobileIndex * 100}%)` }}>
               <span className="block h-full rounded-2xl bg-primary shadow-sm shadow-primary/25" />
             </span>
           ) : null}

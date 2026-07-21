@@ -187,8 +187,8 @@ export function OverviewPage() {
             renderExpandedRow={(record) => <WorkflowExpandedDetails record={record} allRecords={records} />}
             emptyText="No workflow activity matches these filters."
             desktopAt="lg"
-            tableMinWidth="980px"
             compactDesktop
+            naturalPageScroll
           />
         )}
       </section>

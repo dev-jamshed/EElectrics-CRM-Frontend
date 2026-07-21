@@ -100,7 +100,7 @@ export type AddressSuggestion = {
   line: string;
   city?: string;
   postcode?: string;
-  source: "woosmap" | "postcodes.io";
+  source: "woosmap";
 };
 
 export type DashboardSummary = {
