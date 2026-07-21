@@ -1,21 +1,23 @@
 import type {
   ColumnFiltersState,
   ColumnDef,
+  ExpandedState,
   FilterFn,
   SortingState
 } from "@tanstack/react-table";
 import {
   flexRender,
   getCoreRowModel,
+  getExpandedRowModel,
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
   useReactTable
 } from "@tanstack/react-table";
 import type { DateRange } from "react-day-picker";
-import { useMemo, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { ArrowUpRight, ChevronDown, ChevronUp, Download, FileSpreadsheet, FileText, Printer, Search, SlidersHorizontal } from "lucide-react";
+import { ArrowUpRight, ChevronDown, ChevronRight, ChevronUp, Download, FileSpreadsheet, FileText, Printer, Search, SlidersHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DateRangePicker } from "@/components/date-range-picker";
 import { Select } from "@/components/ui/select";
@@ -43,9 +45,12 @@ type DataTableProps<T> = {
   getMobileMeta?: (row: T) => ReactNode;
   getMobileHref?: (row: T) => string;
   getMobileActions?: (row: T) => ReactNode;
+  getRowId?: (row: T) => string;
+  renderExpandedRow?: (row: T) => ReactNode;
   emptyText?: string;
   desktopAt?: "md" | "lg";
   tableMinWidth?: string;
+  compactDesktop?: boolean;
 };
 
 export function DataTable<T>({
@@ -59,13 +64,17 @@ export function DataTable<T>({
   getMobileMeta,
   getMobileHref,
   getMobileActions,
+  getRowId,
+  renderExpandedRow,
   emptyText = "No records found.",
   desktopAt = "md",
-  tableMinWidth = "920px"
+  tableMinWidth = "920px",
+  compactDesktop = false
 }: DataTableProps<T>) {
   const [globalFilter, setGlobalFilter] = useState("");
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [expanded, setExpanded] = useState<ExpandedState>({});
   const [manualDateRange, setManualDateRange] = useState<DateRange | undefined>();
   const memoColumns = useMemo(() => columns, [columns]);
   const tableData = useMemo(() => {
@@ -76,11 +85,15 @@ export function DataTable<T>({
   const table = useReactTable({
     data: tableData,
     columns: memoColumns,
-    state: { globalFilter, sorting, columnFilters },
+    state: { globalFilter, sorting, columnFilters, expanded },
     onGlobalFilterChange: setGlobalFilter,
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
+    onExpandedChange: setExpanded,
+    getRowId,
+    getRowCanExpand: () => Boolean(renderExpandedRow),
     getCoreRowModel: getCoreRowModel(),
+    getExpandedRowModel: getExpandedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
@@ -249,8 +262,9 @@ export function DataTable<T>({
           <thead className="bg-secondary/50 text-xs font-semibold uppercase text-muted-foreground">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
+                {renderExpandedRow ? <th className="w-11 px-2 py-3"><span className="sr-only">Details</span></th> : null}
                 {headerGroup.headers.map((header) => (
-                  <th key={header.id} className="px-4 py-3 text-left font-semibold">
+                  <th key={header.id} className={compactDesktop ? "px-2.5 py-3 text-left font-semibold" : "px-4 py-3 text-left font-semibold"}>
                     {header.isPlaceholder ? null : (
                       <button className="inline-flex items-center gap-1.5 font-semibold" onClick={header.column.getToggleSortingHandler()}>
                         {flexRender(header.column.columnDef.header, header.getContext())}
@@ -268,17 +282,52 @@ export function DataTable<T>({
           <tbody className="divide-y divide-border/50">
             {table.getRowModel().rows.length ? (
               table.getRowModel().rows.map((row) => (
-                <tr key={row.id} className="transition hover:bg-secondary/40">
-                  {row.getVisibleCells().map((cell) => (
-                    <td key={cell.id} className="px-4 py-5 align-middle">
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
-                </tr>
+                <Fragment key={row.id}>
+                  <tr
+                    className={renderExpandedRow
+                      ? row.getIsExpanded()
+                        ? "cursor-pointer bg-primary/[0.055] shadow-[inset_3px_0_0_hsl(var(--primary))] transition hover:bg-primary/[0.075]"
+                        : "cursor-pointer transition hover:bg-secondary/40"
+                      : "transition hover:bg-secondary/40"}
+                    onClick={(event) => {
+                      if (!renderExpandedRow || (event.target as HTMLElement).closest("a, button, input, select, textarea")) return;
+                      row.toggleExpanded();
+                    }}
+                  >
+                    {renderExpandedRow ? (
+                      <td className="w-11 px-2 py-5 align-middle">
+                        <button
+                          type="button"
+                          className="flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition hover:bg-secondary hover:text-foreground"
+                          aria-label={row.getIsExpanded() ? "Collapse details" : "Expand details"}
+                          aria-expanded={row.getIsExpanded()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            row.toggleExpanded();
+                          }}
+                        >
+                          <ChevronRight className={row.getIsExpanded() ? "h-4 w-4 rotate-90 transition-transform" : "h-4 w-4 transition-transform"} />
+                        </button>
+                      </td>
+                    ) : null}
+                    {row.getVisibleCells().map((cell) => (
+                      <td key={cell.id} className={compactDesktop ? "px-2.5 py-5 align-middle" : "px-4 py-5 align-middle"}>
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
+                  </tr>
+                  {renderExpandedRow && row.getIsExpanded() ? (
+                    <tr className="bg-primary/[0.025]">
+                      <td colSpan={columns.length + 1} className="border-x border-b border-t border-primary/35 p-0 shadow-[inset_3px_0_0_hsl(var(--primary))]">
+                        {renderExpandedRow(row.original)}
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
               ))
             ) : (
               <tr>
-                <td className="px-4 py-12 text-center text-muted-foreground" colSpan={columns.length}>
+                <td className="px-4 py-12 text-center text-muted-foreground" colSpan={columns.length + (renderExpandedRow ? 1 : 0)}>
                   {emptyText}
                 </td>
               </tr>
@@ -291,8 +340,14 @@ export function DataTable<T>({
       <div className={mobileRowsClass}>
         {table.getRowModel().rows.length ? (
           table.getRowModel().rows.map((row) => (
-            <article key={row.id} className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm">
-              <div className="p-4">
+            <article key={row.id} className={row.getIsExpanded() ? "overflow-hidden rounded-2xl border border-primary/50 bg-card shadow-[0_12px_30px_hsl(var(--primary)/0.12)] ring-1 ring-primary/15" : "overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm"}>
+              <div
+                className={renderExpandedRow ? "cursor-pointer p-4" : "p-4"}
+                onClick={(event) => {
+                  if (!renderExpandedRow || (event.target as HTMLElement).closest("a, button, input, select, textarea")) return;
+                  row.toggleExpanded();
+                }}
+              >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-semibold text-foreground">
@@ -315,8 +370,13 @@ export function DataTable<T>({
                 })}
               </div>
               </div>
-              {getMobileHref || getMobileActions ? (
+              {getMobileHref || getMobileActions || renderExpandedRow ? (
                 <div className="flex items-center justify-end gap-2 border-t border-border/60 bg-background/45 px-3 py-2.5">
+                  {renderExpandedRow ? (
+                    <Button type="button" size="sm" variant="ghost" className="mr-auto h-9 rounded-xl px-3 text-muted-foreground" onClick={() => row.toggleExpanded()}>
+                      Details <ChevronDown className={row.getIsExpanded() ? "h-4 w-4 rotate-180 transition-transform" : "h-4 w-4 transition-transform"} />
+                    </Button>
+                  ) : null}
                   {getMobileActions ? getMobileActions(row.original) : null}
                   {getMobileHref ? (
                     <Button asChild size="sm" className="h-9 rounded-xl px-4">
@@ -327,6 +387,7 @@ export function DataTable<T>({
                   ) : null}
                 </div>
               ) : null}
+              {renderExpandedRow && row.getIsExpanded() ? <div className="border-t border-primary/30 bg-primary/[0.025]">{renderExpandedRow(row.original)}</div> : null}
             </article>
           ))
         ) : (

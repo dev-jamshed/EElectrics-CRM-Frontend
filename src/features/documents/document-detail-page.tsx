@@ -181,6 +181,7 @@ export function DocumentDetailPage() {
           connectedRecords={connectedRecords}
           hasRevisionDetails={hasRevisionDetails}
           onBack={() => navigate(-1)}
+          onOpenClient={doc.client?.id ? () => navigate(`/clients/${doc.client!.id}`) : undefined}
           onOpenPdf={openPdf}
           onComposeEmail={() => setComposeOpen(true)}
           onSendEmail={() => sendMutation.mutate()}
@@ -240,6 +241,7 @@ export function DocumentDetailPage() {
         connectedRecords={connectedRecords}
         hasRevisionDetails={hasRevisionDetails}
         onBack={() => navigate(-1)}
+        onOpenClient={doc.client?.id ? () => navigate(`/clients/${doc.client!.id}`) : undefined}
         onOpenPdf={openPdf}
         onComposeEmail={() => setComposeOpen(true)}
         onSendEmail={() => sendMutation.mutate()}
@@ -273,6 +275,7 @@ function ModernBillingDetail({
   connectedRecords,
   hasRevisionDetails,
   onBack,
+  onOpenClient,
   onOpenPdf,
   onComposeEmail,
   onSendEmail,
@@ -288,6 +291,7 @@ function ModernBillingDetail({
   connectedRecords: DocumentRecord[];
   hasRevisionDetails: boolean;
   onBack: () => void;
+  onOpenClient?: () => void;
   onOpenPdf: () => void;
   onComposeEmail: () => void;
   onSendEmail: () => void;
@@ -375,7 +379,7 @@ function ModernBillingDetail({
           <section className="rounded-2xl border border-border/50 bg-card/75 p-3.5 shadow-apple backdrop-blur-xl sm:p-5">
             <h2 className="mb-4 text-lg font-bold">{noun} Details</h2>
             <div className="grid min-w-0 gap-3 sm:grid-cols-2">
-              <BillingInfo icon={UserRound} label="Client" value={displayName(doc.client)} />
+              <BillingInfo icon={UserRound} label="Client" value={displayName(doc.client)} onAction={onOpenClient} />
               <BillingInfo icon={Mail} label="Email" value={doc.client?.email ?? "-"} onAction={doc.client?.email ? onComposeEmail : undefined} />
               <BillingInfo icon={FileText} label="Job Description" value={plainTextFromHtml(doc.jobTitle) || "-"} />
               <BillingInfo icon={Phone} label="Phone" value={doc.phoneNo ?? doc.client?.phone ?? "-"} />
@@ -764,6 +768,7 @@ function ModernBookingDetail({
   connectedRecords,
   hasRevisionDetails,
   onBack,
+  onOpenClient,
   onOpenPdf,
   onComposeEmail,
   onSendEmail,
@@ -785,6 +790,7 @@ function ModernBookingDetail({
   connectedRecords: DocumentRecord[];
   hasRevisionDetails: boolean;
   onBack: () => void;
+  onOpenClient?: () => void;
   onOpenPdf: () => void;
   onComposeEmail: () => void;
   onSendEmail: () => void;
@@ -901,7 +907,7 @@ function ModernBookingDetail({
               <span className="rounded-xl bg-primary/10 px-2.5 py-1 text-xs font-bold text-primary">{doc.documentNo}</span>
             </div>
             <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              <DetailTile icon={UserRound} label="Client" value={clientName} />
+              <DetailTile icon={UserRound} label="Client" value={clientName} onAction={onOpenClient} />
               <DetailTile icon={Mail} label="Email" value={doc.client?.email ?? "-"} onAction={doc.client?.email ? onComposeEmail : undefined} />
               <DetailTile icon={Phone} label="Phone" value={doc.phoneNo ?? doc.client?.phone ?? "-"} />
               <DetailTile icon={Mail} label="CC" value={doc.cc ?? "-"} />
@@ -949,7 +955,7 @@ function ModernBookingDetail({
         <aside className="space-y-4">
           <DocumentStatusTimeline doc={doc} />
 
-          <ConnectedRecordsPanel doc={doc} connectedRecords={connectedRecords} />
+          <ConnectedRecordsPanel doc={doc} connectedRecords={connectedRecords} showClient />
         </aside>
       </div>
 
