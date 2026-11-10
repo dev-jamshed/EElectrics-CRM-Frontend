@@ -40,7 +40,7 @@ import {
   Undo2,
   User
 } from "lucide-react";
-import { AddressCombobox } from "@/features/addresses/address-combobox";
+import { AddressSelector } from "@/features/addresses/address-selector";
 import { crmApi } from "@/lib/api";
 import { readMailSnippets } from "@/lib/mail-snippets";
 import { Button } from "@/components/ui/button";
@@ -137,6 +137,12 @@ function buildOldBookingPreviewHtml(form: {
   extraAddress: string;
   greeting: string;
   emailNote: string;
+  hasOccupier?: boolean;
+  occupierFirstName?: string;
+  occupierLastName?: string;
+  occupierAddressLine?: string;
+  occupierPostalCode?: string;
+  occupierExtraAddress?: string;
 }) {
   const clientName = [form.firstName, form.lastName].filter(Boolean).join(" ");
   const notes = richText(form.emailNote);
@@ -255,6 +261,13 @@ function buildOldBookingPreviewHtml(form: {
                     <tr><td class="information_td title_user">FAO :</td><td class="information_td text-align-right-td">${escapeHtml(clientName || "-")}</td></tr>
                     <tr><td class="information_td title_user">Address :</td><td class="information_td text-align-right-td">${escapeHtml(form.addressLine || "-")}</td></tr>
                     ${form.extraAddress ? `<tr><td class="information_td title_user">Address 2 :</td><td class="information_td text-align-right-td">${escapeHtml(form.extraAddress)}</td></tr>` : ""}
+                    ${
+                      form.hasOccupier && (form.occupierFirstName || form.occupierAddressLine)
+                        ? `<tr><td class="information_td title_user">Site / Occupier :</td><td class="information_td text-align-right-td">${escapeHtml([form.occupierFirstName, form.occupierLastName].filter(Boolean).join(" ") || "-")}</td></tr>
+                           <tr><td class="information_td title_user">Site Address :</td><td class="information_td text-align-right-td">${escapeHtml(form.occupierAddressLine || form.occupierPostalCode || "-")}</td></tr>
+                           ${form.occupierExtraAddress ? `<tr><td class="information_td title_user">Site Address 2 :</td><td class="information_td text-align-right-td">${escapeHtml(form.occupierExtraAddress)}</td></tr>` : ""}`
+                        : ""
+                    }
                   </table>
                 </td>
               </tr>
@@ -300,6 +313,12 @@ function buildOldAmountPreviewHtml(form: {
   emailNote: string;
   includeOptions: string[];
   total: number;
+  hasOccupier?: boolean;
+  occupierFirstName?: string;
+  occupierLastName?: string;
+  occupierAddressLine?: string;
+  occupierPostalCode?: string;
+  occupierExtraAddress?: string;
 }) {
   const title = form.type === "QUOTATION" ? "Quotation" : "Invoice";
   const clientName = [form.firstName, form.lastName].filter(Boolean).join(" ");
@@ -360,6 +379,15 @@ function buildOldAmountPreviewHtml(form: {
         ${previewDetailRow("FAO :", clientName || "-")}
         ${previewDetailRow("Address :", form.addressLine || "-")}
         ${form.extraAddress ? previewDetailRow("Address 2 :", form.extraAddress) : ""}
+        ${
+          form.hasOccupier && (form.occupierFirstName || form.occupierAddressLine)
+            ? `
+        ${previewDetailRow("Site / Occupier :", [form.occupierFirstName, form.occupierLastName].filter(Boolean).join(" ") || "-")}
+        ${previewDetailRow("Site Address :", form.occupierAddressLine || form.occupierPostalCode || "-")}
+        ${form.occupierExtraAddress ? previewDetailRow("Site Address 2 :", form.occupierExtraAddress) : ""}
+            `
+            : ""
+        }
       </div></div>
     </div>
     <div class="mail-heading"><p>${title}</p></div>
@@ -542,12 +570,11 @@ export function DocumentFormPage() {
   const { data: clients = [] } = useQuery({
     queryKey: ["clients", "invoice-form"],
     queryFn: () => crmApi.clients(),
-    enabled: isBillingRoute
+    enabled: true
   });
 
   const seed = useMemo<DocumentRecord | undefined>(() => existing ?? source, [existing, source]);
   const copyDocumentText = !isEdit && Boolean(source) && !isClone;
-  const [addressLookup, setAddressLookup] = useState({ query: "", nonce: 0 });
   const submitLockedRef = useRef(false);
   const [invoiceNotesOpen, setInvoiceNotesOpen] = useState(true);
   const [previewHtml, setPreviewHtml] = useState<{ title: string; html: string } | null>(null);
@@ -565,6 +592,14 @@ export function DocumentFormPage() {
     addressLine: "",
     extraAddress: "",
     selectedAddress: undefined as unknown,
+    hasOccupier: false,
+    occupierFirstName: "",
+    occupierLastName: "",
+    occupierPhone: "",
+    occupierPostalCode: "",
+    occupierAddressLine: "",
+    occupierExtraAddress: "",
+    occupierSelectedAddress: undefined as unknown,
     jobTitle: "",
     description: "",
     greeting: "",
@@ -572,6 +607,7 @@ export function DocumentFormPage() {
     issueDate: currentDate,
     bookingDate: "",
     price: "",
+    paidAmount: "",
     labourDescription: "",
     labourPrice: "",
     materialDescription: "",
@@ -636,6 +672,14 @@ export function DocumentFormPage() {
       addressLine: seed.addressLine ?? "",
       extraAddress: seed.extraAddress ?? "",
       selectedAddress: parseSelectedAddress(seed.selectedAddress),
+      hasOccupier: Boolean(seed.hasOccupier),
+      occupierFirstName: seed.occupierFirstName ?? "",
+      occupierLastName: seed.occupierLastName ?? "",
+      occupierPhone: seed.occupierPhone ?? "",
+      occupierPostalCode: seed.occupierPostalCode ?? "",
+      occupierAddressLine: seed.occupierAddressLine ?? "",
+      occupierExtraAddress: seed.occupierExtraAddress ?? "",
+      occupierSelectedAddress: parseSelectedAddress(seed.occupierSelectedAddress),
       jobTitle: seed.jobTitle ?? "",
       description: copyDocumentText ? "" : isBillingRoute ? editableBillingDescription(seed.description, seed.lineItems ?? []) : seed.description ?? "",
       greeting: copyDocumentText ? "" : seed.greeting ?? "",
@@ -643,6 +687,7 @@ export function DocumentFormPage() {
       issueDate: isClone ? currentDate : seed.issueDate?.slice(0, 10) ?? current.issueDate,
       bookingDate: isClone ? currentDate : seed.bookingDate?.slice(0, 10) ?? "",
       price: seed.price ? String(seed.price) : seed.total ? String(seed.total) : "",
+      paidAmount: seed.paidAmount ? String(seed.paidAmount) : "",
       labourDescription: seed.lineItems?.find((item) => item.kind === "LABOUR")?.description ?? "",
       labourPrice: seed.lineItems?.find((item) => item.kind === "LABOUR")?.unitPrice ? String(seed.lineItems.find((item) => item.kind === "LABOUR")?.unitPrice) : "",
       materialDescription: seed.lineItems?.find((item) => item.kind === "MATERIAL")?.description ?? "",
@@ -681,15 +726,6 @@ export function DocumentFormPage() {
     const attachments = await Promise.all(files.map(readFile));
     setForm((current) => ({ ...current, attachments: [...current.attachments, ...attachments] }));
     event.target.value = "";
-  };
-
-  const searchPostcodeAddress = () => {
-    const query = form.postalCode.trim();
-    if (!query) {
-      toast.error("Enter postal code first");
-      return;
-    }
-    setAddressLookup((current) => ({ query, nonce: current.nonce + 1 }));
   };
 
   const hasLabour = form.includeOptions.includes("labour");
@@ -785,7 +821,13 @@ export function DocumentFormPage() {
       addressLine: form.addressLine,
       extraAddress: form.extraAddress,
       greeting: form.greeting,
-      emailNote: form.emailNote
+      emailNote: form.emailNote,
+      hasOccupier: form.hasOccupier,
+      occupierFirstName: form.occupierFirstName,
+      occupierLastName: form.occupierLastName,
+      occupierAddressLine: form.occupierAddressLine,
+      occupierPostalCode: form.occupierPostalCode,
+      occupierExtraAddress: form.occupierExtraAddress
     });
     setPreviewHtml({ title: "Booking Preview", html });
   };
@@ -804,7 +846,13 @@ export function DocumentFormPage() {
       body: isBillingDocument ? invoiceBodyFromItems(form.description || form.emailBody, selectedLineItems) : form.description || form.emailBody,
       emailNote: form.emailNote,
       includeOptions: computedIncludeOptions,
-      total: documentAmount
+      total: documentAmount,
+      hasOccupier: form.hasOccupier,
+      occupierFirstName: form.occupierFirstName,
+      occupierLastName: form.occupierLastName,
+      occupierAddressLine: form.occupierAddressLine,
+      occupierPostalCode: form.occupierPostalCode,
+      occupierExtraAddress: form.occupierExtraAddress
     });
     setPreviewHtml({ title: `${billingNoun} Preview`, html });
   };
@@ -835,9 +883,18 @@ export function DocumentFormPage() {
         addressLine: form.addressLine,
         extraAddress: form.extraAddress,
         selectedAddress: form.selectedAddress,
+        hasOccupier: Boolean(form.hasOccupier),
+        occupierFirstName: form.hasOccupier ? form.occupierFirstName : undefined,
+        occupierLastName: form.hasOccupier ? form.occupierLastName : undefined,
+        occupierPhone: form.hasOccupier ? form.occupierPhone : undefined,
+        occupierPostalCode: form.hasOccupier ? form.occupierPostalCode : undefined,
+        occupierAddressLine: form.hasOccupier ? form.occupierAddressLine : undefined,
+        occupierExtraAddress: form.hasOccupier ? form.occupierExtraAddress : undefined,
+        occupierSelectedAddress: form.hasOccupier ? form.occupierSelectedAddress : undefined,
         issueDate: form.type === "BOOKING" ? undefined : form.issueDate || undefined,
         bookingDate: form.type === "BOOKING" ? form.bookingDate || form.issueDate || undefined : undefined,
         price: documentAmount,
+        paidAmount: form.paidAmount ? Number(form.paidAmount) : undefined,
         includeOptions: computedIncludeOptions,
         sendMail: overrides?.sendMail ?? form.sendMail,
         sendImages: form.sendImages,
@@ -1030,14 +1087,14 @@ export function DocumentFormPage() {
               <h2 className="mb-4 text-base font-bold">Client & {billingNoun} Details</h2>
               <div className="space-y-4">
                 <div className="grid gap-x-5 gap-y-4 md:grid-cols-2 lg:grid-cols-3">
-                  <label className="space-y-2">
-                    <span className={fieldLabelClass}>Client</span>
+                  <label className="space-y-2 md:col-span-2 lg:col-span-3">
+                    <span className={fieldLabelClass}>Select Existing Client (or type directly below for new client)</span>
                     <InvoiceClientPicker
                       clients={clients}
                       value={clientDisplayName(form.firstName, form.lastName) === "-" ? "" : clientDisplayName(form.firstName, form.lastName)}
                       onType={(value) => {
                         const [firstName = "", ...rest] = value.trimStart().split(/\s+/);
-                        setForm({ ...form, clientId: "", firstName, lastName: rest.join(" "), email: "", phone: "" });
+                        setForm({ ...form, clientId: "", firstName, lastName: rest.join(" ") });
                       }}
                       onSelect={(client) => {
                         const recentDocument = client.documents?.find((item) => item.addressLine || item.extraAddress || item.postalCode);
@@ -1055,41 +1112,45 @@ export function DocumentFormPage() {
                       }}
                     />
                   </label>
+                  <IconField icon={User} label="First Name" value={form.firstName} onChange={(firstName) => setForm({ ...form, firstName, clientId: "" })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
+                  <IconField icon={User} label="Last Name (Optional)" value={form.lastName} onChange={(lastName) => setForm({ ...form, lastName, clientId: "" })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
                   <IconField icon={Mail} label="Email" type="email" value={form.email} onChange={(email) => setForm({ ...form, email })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
                   <IconField icon={Phone} label="Phone Number /UK Format/ (Optional)" value={form.phone} onChange={(phone) => setForm({ ...form, phone })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
                   <IconField icon={Hash} label="Reference / PO (optional)" value={form.cc} onChange={(cc) => setForm({ ...form, cc })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
-                  <label className="space-y-2">
-                    <span className={fieldLabelClass}>Postal Code</span>
-                    <div className="flex">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-l-lg border border-r-0 border-[#cbd5e1] bg-white text-slate-500 dark:border-border/70 dark:bg-background dark:text-muted-foreground">
-                        <Hash className="h-4 w-4" />
-                      </div>
-                      <Input className={`${formInputClass} rounded-none`} value={form.postalCode} onChange={(event) => setForm({ ...form, postalCode: event.target.value })} />
-                      <Button type="button" className="h-10 w-10 rounded-l-none rounded-r-lg bg-[#ef1228] hover:bg-[#d90f22]" size="icon" onClick={searchPostcodeAddress}>
-                        <Search className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </label>
                 </div>
 
-                <div className="grid gap-x-5 gap-y-4 md:grid-cols-2">
-                  <label className="space-y-2">
-                    <span className={fieldLabelClass}>Address</span>
-                    <AddressCombobox
-                      value={form.addressLine}
-                      onChange={(value, selected?: AddressSuggestion) => setForm({ ...form, addressLine: value, postalCode: selected?.postcode ?? form.postalCode, selectedAddress: selected })}
-                      lookupQuery={addressLookup.query}
-                      lookupNonce={addressLookup.nonce}
-                      inputClassName={formInputClass}
-                    />
-                  </label>
-                  <IconField icon={Home} label="Address 2 (Optional)" value={form.extraAddress} onChange={(extraAddress) => setForm({ ...form, extraAddress })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
-                </div>
+                <AddressSelector
+                  postcode={form.postalCode}
+                  onPostcodeChange={(postalCode) => setForm({ ...form, postalCode })}
+                  address={form.addressLine}
+                  onAddressChange={(addressLine) => setForm({ ...form, addressLine })}
+                  address2={form.extraAddress}
+                  onAddress2Change={(extraAddress) => setForm({ ...form, extraAddress })}
+                  fieldLabelClass={fieldLabelClass}
+                  inputClassName={invoiceInputClass}
+                />
 
                 <div className="grid gap-x-5 gap-y-4 md:grid-cols-2">
                   <IconField icon={Calendar} label={`${billingNoun} Date`} type="date" value={form.issueDate} onChange={(issueDate) => setForm({ ...form, issueDate })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
                   <IconField icon={FileText} label="Job Description" value={form.jobTitle} onChange={(jobTitle) => setForm({ ...form, jobTitle })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
                 </div>
+
+                <OccupierFieldsCard
+                  hasOccupier={form.hasOccupier}
+                  onToggle={(hasOccupier) => setForm((curr) => ({ ...curr, hasOccupier }))}
+                  firstName={form.occupierFirstName}
+                  onChangeFirstName={(occupierFirstName) => setForm((curr) => ({ ...curr, occupierFirstName }))}
+                  lastName={form.occupierLastName}
+                  onChangeLastName={(occupierLastName) => setForm((curr) => ({ ...curr, occupierLastName }))}
+                  phone={form.occupierPhone}
+                  onChangePhone={(occupierPhone) => setForm((curr) => ({ ...curr, occupierPhone }))}
+                  postalCode={form.occupierPostalCode}
+                  onChangePostalCode={(occupierPostalCode) => setForm((curr) => ({ ...curr, occupierPostalCode }))}
+                  addressLine={form.occupierAddressLine}
+                  onChangeAddress={(occupierAddressLine) => setForm((curr) => ({ ...curr, occupierAddressLine }))}
+                  extraAddress={form.occupierExtraAddress}
+                  onChangeExtraAddress={(occupierExtraAddress) => setForm((curr) => ({ ...curr, occupierExtraAddress }))}
+                />
               </div>
             </div>
 
@@ -1127,9 +1188,30 @@ export function DocumentFormPage() {
                     <Percent className="h-4 w-4" /> Add discount
                   </Button>
                 </div>
-                <div className="w-full space-y-2 rounded-2xl bg-secondary/40 p-3 text-sm sm:w-[230px]">
-                  <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>{subtotal.toFixed(2)}</span></div>
-                  <div className="flex justify-between border-t border-border pt-2 text-lg font-bold"><span>Total</span><span>{subtotal.toFixed(2)}</span></div>
+                <div className="w-full space-y-2.5 rounded-2xl bg-secondary/50 p-4 text-sm sm:w-[320px]">
+                  <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>£{subtotal.toFixed(2)}</span></div>
+                  <div className="flex justify-between border-t border-border/70 pt-2 text-base font-bold"><span>Total Amount</span><span>£{subtotal.toFixed(2)}</span></div>
+                  <div className="pt-2 border-t border-border/70">
+                    <label className="block text-xs font-semibold text-muted-foreground mb-1">
+                      Initial / Partial Payment Received (£)
+                    </label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max={subtotal}
+                      placeholder="0.00"
+                      className="h-9 text-sm bg-background/80 border-border"
+                      value={form.paidAmount}
+                      onChange={(e) => setForm({ ...form, paidAmount: e.target.value })}
+                    />
+                  </div>
+                  {Number(form.paidAmount || 0) > 0 ? (
+                    <div className="flex justify-between items-center pt-2 border-t border-border/70 text-sm font-bold text-primary">
+                      <span>Remaining Balance Due:</span>
+                      <span>£{Math.max(0, subtotal - Number(form.paidAmount || 0)).toFixed(2)}</span>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -1280,42 +1362,48 @@ export function DocumentFormPage() {
               <h2 className="mb-4 text-base font-bold">Client & Booking Details</h2>
               <div className="space-y-4">
                 <div className="grid gap-x-5 gap-y-4 md:grid-cols-2 lg:grid-cols-3">
-                  <IconField icon={User} label="First Name" value={form.firstName} onChange={(firstName) => setForm({ ...form, firstName })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
-                  <IconField icon={User} label="Last Name (Optional)" value={form.lastName} onChange={(lastName) => setForm({ ...form, lastName })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
+                  <label className="space-y-2 md:col-span-2 lg:col-span-3">
+                    <span className={fieldLabelClass}>Select Existing Client (or type directly below for new client)</span>
+                    <InvoiceClientPicker
+                      clients={clients}
+                      value={clientDisplayName(form.firstName, form.lastName) === "-" ? "" : clientDisplayName(form.firstName, form.lastName)}
+                      onType={(value) => {
+                        const [firstName = "", ...rest] = value.trimStart().split(/\s+/);
+                        setForm({ ...form, clientId: "", firstName, lastName: rest.join(" ") });
+                      }}
+                      onSelect={(client) => {
+                        const recentDocument = client.documents?.find((item) => item.addressLine || item.extraAddress || item.postalCode);
+                        setForm({
+                          ...form,
+                          clientId: client.id,
+                          firstName: client.firstName ?? "",
+                          lastName: client.lastName ?? "",
+                          email: client.email ?? "",
+                          phone: client.phone ?? "",
+                          postalCode: recentDocument?.postalCode ?? form.postalCode,
+                          addressLine: recentDocument?.addressLine ?? form.addressLine,
+                          extraAddress: recentDocument?.extraAddress ?? form.extraAddress
+                        });
+                      }}
+                    />
+                  </label>
+                  <IconField icon={User} label="First Name" value={form.firstName} onChange={(firstName) => setForm({ ...form, firstName, clientId: "" })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
+                  <IconField icon={User} label="Last Name (Optional)" value={form.lastName} onChange={(lastName) => setForm({ ...form, lastName, clientId: "" })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
                   <IconField icon={Mail} label="Email" type="email" value={form.email} onChange={(email) => setForm({ ...form, email })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
                   <IconField icon={Phone} label="Phone Number /UK Format/ (Optional)" value={form.phone} onChange={(phone) => setForm({ ...form, phone })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
                   <IconField icon={Mail} label="CC (Optional)" type="email" value={form.cc} onChange={(cc) => setForm({ ...form, cc })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
-                  <label className="space-y-2">
-                    <span className={fieldLabelClass}>Postal Code</span>
-                    <div className="flex">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-l-lg border border-r-0 border-[#cbd5e1] bg-white text-slate-500 dark:border-border/70 dark:bg-background dark:text-muted-foreground">
-                        <Hash className="h-4 w-4" />
-                      </div>
-                      <Input
-                        className={`${formInputClass} rounded-none`}
-                        value={form.postalCode}
-                        onChange={(event) => setForm({ ...form, postalCode: event.target.value })}
-                      />
-                      <Button type="button" className="h-10 w-10 rounded-l-none rounded-r-lg bg-[#ef1228] hover:bg-[#d90f22]" size="icon" onClick={searchPostcodeAddress}>
-                        <Search className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </label>
                 </div>
 
-                <div className="grid gap-x-5 gap-y-4 md:grid-cols-2">
-                  <label className="space-y-2">
-                    <span className={fieldLabelClass}>Address</span>
-                    <AddressCombobox
-                      value={form.addressLine}
-                      onChange={(value, selected?: AddressSuggestion) => setForm({ ...form, addressLine: value, postalCode: selected?.postcode ?? form.postalCode, selectedAddress: selected })}
-                      lookupQuery={addressLookup.query}
-                      lookupNonce={addressLookup.nonce}
-                      inputClassName={formInputClass}
-                    />
-                  </label>
-                  <IconField icon={Home} label="Address 2 (Optional)" value={form.extraAddress} onChange={(extraAddress) => setForm({ ...form, extraAddress })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
-                </div>
+                <AddressSelector
+                  postcode={form.postalCode}
+                  onPostcodeChange={(postalCode) => setForm({ ...form, postalCode })}
+                  address={form.addressLine}
+                  onAddressChange={(addressLine) => setForm({ ...form, addressLine })}
+                  address2={form.extraAddress}
+                  onAddress2Change={(extraAddress) => setForm({ ...form, extraAddress })}
+                  fieldLabelClass={fieldLabelClass}
+                  inputClassName={invoiceInputClass}
+                />
 
                 <div className="grid gap-x-5 gap-y-4 md:grid-cols-2">
                   <IconField
@@ -1329,6 +1417,23 @@ export function DocumentFormPage() {
                   />
                   <IconField icon={FileText} label="Job Description" value={form.jobTitle} onChange={(jobTitle) => setForm({ ...form, jobTitle })} inputClassName={invoiceInputClass} iconClassName="border-border/70 bg-background text-muted-foreground" />
                 </div>
+
+                <OccupierFieldsCard
+                  hasOccupier={form.hasOccupier}
+                  onToggle={(hasOccupier) => setForm((curr) => ({ ...curr, hasOccupier }))}
+                  firstName={form.occupierFirstName}
+                  onChangeFirstName={(occupierFirstName) => setForm((curr) => ({ ...curr, occupierFirstName }))}
+                  lastName={form.occupierLastName}
+                  onChangeLastName={(occupierLastName) => setForm((curr) => ({ ...curr, occupierLastName }))}
+                  phone={form.occupierPhone}
+                  onChangePhone={(occupierPhone) => setForm((curr) => ({ ...curr, occupierPhone }))}
+                  postalCode={form.occupierPostalCode}
+                  onChangePostalCode={(occupierPostalCode) => setForm((curr) => ({ ...curr, occupierPostalCode }))}
+                  addressLine={form.occupierAddressLine}
+                  onChangeAddress={(occupierAddressLine) => setForm((curr) => ({ ...curr, occupierAddressLine }))}
+                  extraAddress={form.occupierExtraAddress}
+                  onChangeExtraAddress={(occupierExtraAddress) => setForm((curr) => ({ ...curr, occupierExtraAddress }))}
+                />
               </div>
             </div>
 
@@ -1449,37 +1554,37 @@ export function DocumentFormPage() {
           <IconField icon={Mail} label="Email" type="email" value={form.email} onChange={(email) => setForm({ ...form, email })} />
           <IconField icon={Mail} label="CC (Optional)" type="email" value={form.cc} onChange={(cc) => setForm({ ...form, cc })} />
           <IconField icon={Phone} label="Phone Number /UK Format/ (Optional)" value={form.phone} onChange={(phone) => setForm({ ...form, phone })} />
-          <label className="space-y-2">
-            <span className={fieldLabelClass}>Postal Code</span>
-            <div className="flex">
-              <div className="flex h-10 w-10 items-center justify-center rounded-l-md border border-r-0 text-muted-foreground">
-                <Hash className="h-4 w-4" />
-              </div>
-              <Input className="rounded-none" value={form.postalCode} onChange={(event) => setForm({ ...form, postalCode: event.target.value })} />
-              <Button type="button" className="rounded-l-none" size="icon" onClick={searchPostcodeAddress}>
-                <Search className="h-4 w-4" />
-              </Button>
-            </div>
-          </label>
-          <label className="space-y-2 md:col-span-2">
-            <span className={fieldLabelClass}>Address</span>
-            <div className="flex">
-              <div className="flex h-10 w-10 items-center justify-center rounded-l-md border border-r-0 text-muted-foreground">
-                <Home className="h-4 w-4" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <AddressCombobox
-                  value={form.addressLine}
-                  onChange={(value, selected?: AddressSuggestion) => setForm({ ...form, addressLine: value, postalCode: selected?.postcode ?? form.postalCode, selectedAddress: selected })}
-                  lookupQuery={addressLookup.query}
-                  lookupNonce={addressLookup.nonce}
-                />
-              </div>
-            </div>
-          </label>
-          <IconField icon={Home} label="Address 2 (Optional)" value={form.extraAddress} onChange={(extraAddress) => setForm({ ...form, extraAddress })} />
+          <div className="md:col-span-3">
+            <AddressSelector
+              postcode={form.postalCode}
+              onPostcodeChange={(postalCode) => setForm({ ...form, postalCode })}
+              address={form.addressLine}
+              onAddressChange={(addressLine) => setForm({ ...form, addressLine })}
+              address2={form.extraAddress}
+              onAddress2Change={(extraAddress) => setForm({ ...form, extraAddress })}
+              fieldLabelClass={fieldLabelClass}
+            />
+          </div>
           <IconField icon={Calendar} label="Date" type="date" value={form.issueDate} onChange={(issueDate) => setForm({ ...form, issueDate })} />
           <IconField icon={FileText} label="Job Description" value={form.jobTitle} onChange={(jobTitle) => setForm({ ...form, jobTitle })} />
+          <div className="md:col-span-3">
+            <OccupierFieldsCard
+              hasOccupier={form.hasOccupier}
+              onToggle={(hasOccupier) => setForm((curr) => ({ ...curr, hasOccupier }))}
+              firstName={form.occupierFirstName}
+              onChangeFirstName={(occupierFirstName) => setForm((curr) => ({ ...curr, occupierFirstName }))}
+              lastName={form.occupierLastName}
+              onChangeLastName={(occupierLastName) => setForm((curr) => ({ ...curr, occupierLastName }))}
+              phone={form.occupierPhone}
+              onChangePhone={(occupierPhone) => setForm((curr) => ({ ...curr, occupierPhone }))}
+              postalCode={form.occupierPostalCode}
+              onChangePostalCode={(occupierPostalCode) => setForm((curr) => ({ ...curr, occupierPostalCode }))}
+              addressLine={form.occupierAddressLine}
+              onChangeAddress={(occupierAddressLine) => setForm((curr) => ({ ...curr, occupierAddressLine }))}
+              extraAddress={form.occupierExtraAddress}
+              onChangeExtraAddress={(occupierExtraAddress) => setForm((curr) => ({ ...curr, occupierExtraAddress }))}
+            />
+          </div>
           <div>
             <IncludeMultiSelect
               value={form.includeOptions}
@@ -2109,5 +2214,118 @@ function SnippetSelect({ targetLabel, onInsert }: { targetLabel: string; onInser
         {snippets.map((snippet) => <option key={snippet.id} value={snippet.id}>{snippet.title}</option>)}
       </select>
     </label>
+  );
+}
+
+function OccupierFieldsCard({
+  hasOccupier,
+  onToggle,
+  firstName,
+  onChangeFirstName,
+  lastName,
+  onChangeLastName,
+  phone,
+  onChangePhone,
+  postalCode,
+  onChangePostalCode,
+  addressLine,
+  onChangeAddress,
+  extraAddress,
+  onChangeExtraAddress
+}: {
+  hasOccupier: boolean;
+  onToggle: (checked: boolean) => void;
+  firstName: string;
+  onChangeFirstName: (val: string) => void;
+  lastName: string;
+  onChangeLastName: (val: string) => void;
+  phone: string;
+  onChangePhone: (val: string) => void;
+  postalCode: string;
+  onChangePostalCode: (val: string) => void;
+  addressLine: string;
+  onChangeAddress: (val: string) => void;
+  extraAddress: string;
+  onChangeExtraAddress: (val: string) => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-border/70 bg-gradient-to-r from-secondary/40 to-background/50 p-4 transition-all duration-200">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
+            <Home className="h-4 w-4" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-foreground">Different Site / Occupier Details</span>
+              <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">Optional</span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Enable if client owns multiple properties or work is at a tenant / occupier location.
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          role="switch"
+          aria-checked={hasOccupier}
+          onClick={() => onToggle(!hasOccupier)}
+          className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+            hasOccupier ? "bg-[#ef1228]" : "bg-slate-300 dark:bg-slate-700"
+          }`}
+        >
+          <span
+            aria-hidden="true"
+            className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+              hasOccupier ? "translate-x-5" : "translate-x-0"
+            }`}
+          />
+        </button>
+      </div>
+
+      {hasOccupier ? (
+        <div className="mt-4 space-y-4 border-t border-border/60 pt-4 animate-in fade-in-50 duration-200">
+          <div className="grid gap-x-5 gap-y-4 md:grid-cols-2 lg:grid-cols-3">
+            <IconField
+              icon={User}
+              label="Occupier First Name"
+              value={firstName}
+              onChange={onChangeFirstName}
+              inputClassName={invoiceInputClass}
+              iconClassName="border-border/70 bg-background text-muted-foreground"
+            />
+            <IconField
+              icon={User}
+              label="Occupier Last Name (Optional)"
+              value={lastName}
+              onChange={onChangeLastName}
+              inputClassName={invoiceInputClass}
+              iconClassName="border-border/70 bg-background text-muted-foreground"
+            />
+            <IconField
+              icon={Phone}
+              label="Occupier Phone / UK Format (Optional)"
+              value={phone}
+              onChange={onChangePhone}
+              inputClassName={invoiceInputClass}
+              iconClassName="border-border/70 bg-background text-muted-foreground"
+            />
+          </div>
+
+          <AddressSelector
+            postcode={postalCode}
+            onPostcodeChange={onChangePostalCode}
+            address={addressLine}
+            onAddressChange={onChangeAddress}
+            address2={extraAddress}
+            onAddress2Change={onChangeExtraAddress}
+            labelPrefix="Site"
+            inputClassName={invoiceInputClass}
+            fieldLabelClass={fieldLabelClass}
+          />
+        </div>
+      ) : null}
+    </div>
   );
 }

@@ -19,6 +19,7 @@ import {
   MapPin,
   Paperclip,
   Phone,
+  PlusCircle,
   Receipt,
   Send,
   Trash2,
@@ -32,7 +33,8 @@ import { ComposeEmailDialog } from "@/components/compose-email-dialog";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PdfPreviewDialog } from "@/components/pdf-preview-dialog";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/input";
+import { Input, Textarea } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { DocumentRecord, MailboxThread } from "@/types/crm";
 
 type QueuedReply = {
@@ -95,8 +97,22 @@ export function DocumentDetailPage() {
     mutationFn: () => crmApi.markPaid(id!),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["document", id] });
-      toast.success("Marked as paid");
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      toast.success("Marked as paid in full");
     }
+  });
+
+  const recordPaymentMutation = useMutation({
+    mutationFn: (payload: { amount: number; method?: string; note?: string; paidAt?: string }) =>
+      crmApi.recordPayment(id!, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["document", id] });
+      queryClient.invalidateQueries({ queryKey: ["documents"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+      toast.success("Payment recorded successfully");
+    },
+    onError: (error: any) => toast.error(error?.response?.data?.message || "Failed to record payment")
   });
 
   const cloneMutation = useMutation({
@@ -252,6 +268,8 @@ export function DocumentDetailPage() {
         deleting={deleteMutation.isPending}
         onMarkPaid={() => paidMutation.mutate()}
         markingPaid={paidMutation.isPending}
+        onRecordPayment={(payload) => recordPaymentMutation.mutate(payload)}
+        recordingPayment={recordPaymentMutation.isPending}
       />
       <ConfirmDialog
         open={deleteOpen}
@@ -285,7 +303,9 @@ function ModernBillingDetail({
   onDelete,
   deleting,
   onMarkPaid,
-  markingPaid
+  markingPaid,
+  onRecordPayment,
+  recordingPayment
 }: {
   doc: DocumentRecord;
   connectedRecords: DocumentRecord[];
@@ -302,11 +322,18 @@ function ModernBillingDetail({
   deleting: boolean;
   onMarkPaid: () => void;
   markingPaid: boolean;
+  onRecordPayment: (payload: { amount: number; method: string; note: string; paidAt?: string }) => void;
+  recordingPayment: boolean;
 }) {
   const noun = doc.type === "QUOTATION" ? "Quotation" : "Invoice";
   const isInvoice = doc.type === "INVOICE";
-  const paid = doc.paymentStatus === "PAID" || doc.status === "PAID";
-  const total = Number(doc.total || 0);
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const total = Number(doc.total || doc.price || 0);
+  const paidAmount = Number(doc.paidAmount || 0);
+  const remainingAmount = Math.max(0, total - paidAmount);
+  const isFullyPaid = doc.paymentStatus === "PAID" || (paidAmount >= total && total > 0);
+  const paid = isFullyPaid;
+  const isPartiallyPaid = (doc.paymentStatus === "PARTIALLY_PAID" || (paidAmount > 0 && paidAmount < total)) && !isFullyPaid;
   const subtotal = doc.lineItems?.length ? doc.lineItems.reduce((sum, item) => sum + Number(item.total || 0), 0) : total;
   const issueDate = doc.issueDate || doc.createdAt;
 
@@ -324,9 +351,21 @@ function ModernBillingDetail({
             <span className={doc.status === "DRAFT" ? "rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm font-semibold text-amber-600" : "rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-sm font-semibold text-blue-600"}>
               {titleCase(doc.status)}
             </span>
-            {isInvoice ? (
-              <span className={paid ? "rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-600" : "rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm font-semibold text-primary"}>
-                {paid ? "Paid" : "Unpaid"}
+            {isInvoice || doc.type === "QUOTATION" ? (
+              <span
+                className={
+                  isFullyPaid
+                    ? "rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-600"
+                    : isPartiallyPaid
+                      ? "rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm font-semibold text-amber-600"
+                      : "rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-sm font-semibold text-primary"
+                }
+              >
+                {isFullyPaid
+                  ? "Paid in Full"
+                  : isPartiallyPaid
+                    ? `Partially Paid (£${paidAmount.toFixed(2)} / £${total.toFixed(2)})`
+                    : "Unpaid"}
               </span>
             ) : null}
             {hasRevisionDetails ? <span className="rounded-xl bg-secondary px-3 py-2 text-sm font-semibold text-secondary-foreground">Revision {doc.revisionNo}</span> : null}
@@ -360,7 +399,18 @@ function ModernBillingDetail({
             <Mail className="h-4 w-4" />
             {sendingEmail ? "Sending..." : "Send Email"}
           </Button>
-          {isInvoice && !paid ? (
+          {(isInvoice || doc.type === "QUOTATION") && !isFullyPaid ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 w-auto shrink-0 rounded-xl border-emerald-500/40 bg-emerald-500/10 px-4 font-semibold text-emerald-700 hover:bg-emerald-500/20 sm:h-11 sm:w-full sm:px-5 xl:w-auto"
+              onClick={() => setPaymentModalOpen(true)}
+            >
+              <PlusCircle className="h-4 w-4" />
+              Record Payment
+            </Button>
+          ) : null}
+          {(isInvoice || doc.type === "QUOTATION") && !isFullyPaid ? (
             <Button className="h-10 w-auto shrink-0 rounded-xl px-4 font-semibold sm:h-11 sm:w-full sm:px-5 xl:w-auto" onClick={onMarkPaid} loading={markingPaid}>
               <Wallet className="h-4 w-4" />
               Mark Paid
@@ -383,8 +433,34 @@ function ModernBillingDetail({
               <BillingInfo icon={Mail} label="Email" value={doc.client?.email ?? "-"} onAction={doc.client?.email ? onComposeEmail : undefined} />
               <BillingInfo icon={FileText} label="Job Description" value={plainTextFromHtml(doc.jobTitle) || "-"} />
               <BillingInfo icon={Phone} label="Phone" value={doc.phoneNo ?? doc.client?.phone ?? "-"} />
-              {isInvoice ? <BillingInfo icon={Wallet} label="Payment Status" value={paid ? "Paid" : "Unpaid"} accent={!paid} /> : <BillingInfo icon={CheckCircle2} label="Status" value={titleCase(doc.status)} />}
-              <BillingInfo icon={MapPin} label="Address" value={doc.addressLine ?? "-"} />
+              {isInvoice ? (
+                <BillingInfo
+                  icon={Wallet}
+                  label="Payment Status"
+                  value={isFullyPaid ? "Paid in Full" : isPartiallyPaid ? `Partially Paid (£${paidAmount.toFixed(0)} / £${total.toFixed(0)})` : "Unpaid"}
+                  accent={!isFullyPaid}
+                />
+              ) : (
+                <BillingInfo icon={CheckCircle2} label="Status" value={titleCase(doc.status)} />
+              )}
+              <BillingInfo icon={MapPin} label={doc.hasOccupier ? "Billing Address" : "Address"} value={doc.addressLine ?? "-"} />
+              {doc.hasOccupier ? (
+                <>
+                  <BillingInfo
+                    icon={UserRound}
+                    label="Site / Occupier"
+                    value={[doc.occupierFirstName, doc.occupierLastName].filter(Boolean).join(" ") || "-"}
+                  />
+                  <BillingInfo
+                    icon={MapPin}
+                    label="Site Address"
+                    value={[doc.occupierAddressLine, doc.occupierPostalCode].filter(Boolean).join(", ") || "-"}
+                  />
+                  {doc.occupierPhone ? (
+                    <BillingInfo icon={Phone} label="Site Phone" value={doc.occupierPhone} />
+                  ) : null}
+                </>
+              ) : null}
               <BillingInfo icon={Clock3} label="Paid At" value={doc.paidAt ? formatDateTime(doc.paidAt) : "-"} />
               <BillingInfo icon={CalendarDays} label="Issue Date" value={formatDate(issueDate)} />
               <BillingInfo icon={Mail} label="Email Status" value={emailStatusLabel(doc.emailStatus)} />
@@ -443,7 +519,91 @@ function ModernBillingDetail({
                 <span className="text-xl font-bold">Total</span>
                 <span className="text-2xl font-bold text-primary">{currency(total)}</span>
               </div>
+              {paidAmount > 0 ? (
+                <>
+                  <div className="flex items-center justify-between border-t border-border/60 bg-emerald-500/10 px-5 py-3 text-sm font-semibold text-emerald-700">
+                    <span>Paid to Date</span>
+                    <span>- {currency(paidAmount)}</span>
+                  </div>
+                  <div className="flex items-center justify-between border-t border-border/60 bg-primary/10 px-5 py-3 text-sm font-bold text-primary">
+                    <span>Remaining Due (Baqaya)</span>
+                    <span>{currency(remainingAmount)}</span>
+                  </div>
+                </>
+              ) : null}
             </div>
+          </section>
+
+          <section className="rounded-2xl border border-border/50 bg-card/75 p-4 shadow-apple backdrop-blur-xl sm:p-5">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-lg font-bold">Payment & Balance Breakdown</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">Manage installment payments, view remaining balance, and log settlements.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {!isFullyPaid ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm"
+                    onClick={() => setPaymentModalOpen(true)}
+                  >
+                    <PlusCircle className="h-4 w-4 mr-1.5" /> Record Payment
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                <span className="text-xs font-semibold text-muted-foreground">Total Invoiced</span>
+                <div className="mt-1 text-2xl font-bold text-foreground">{currency(total)}</div>
+              </div>
+              <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-4">
+                <span className="text-xs font-semibold text-emerald-700">Total Paid to Date</span>
+                <div className="mt-1 text-2xl font-bold text-emerald-700">{currency(paidAmount)}</div>
+                <span className="text-[11px] font-medium text-emerald-600">{total > 0 ? Math.min(100, Math.round((paidAmount / total) * 100)) : 0}% settled</span>
+              </div>
+              <div className="rounded-2xl border border-primary/20 bg-primary/10 p-4">
+                <span className="text-xs font-semibold text-primary">Remaining Balance (Baqaya)</span>
+                <div className="mt-1 text-2xl font-bold text-primary">{currency(remainingAmount)}</div>
+                <span className="text-[11px] font-medium text-muted-foreground">{isFullyPaid ? "Fully cleared" : "Outstanding balance"}</span>
+              </div>
+            </div>
+
+            {/* Visual Progress Bar */}
+            <div className="mt-4">
+              <div className="flex justify-between text-xs font-medium text-muted-foreground mb-1.5">
+                <span>Payment Progress</span>
+                <span className="font-semibold">{total > 0 ? Math.min(100, Math.round((paidAmount / total) * 100)) : 0}%</span>
+              </div>
+              <div className="h-3 w-full rounded-full bg-secondary overflow-hidden flex">
+                <div
+                  className="bg-emerald-500 transition-all duration-500"
+                  style={{ width: `${total > 0 ? Math.min(100, Math.round((paidAmount / total) * 100)) : 0}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Payment History List */}
+            {doc.paymentRecords?.length ? (
+              <div className="mt-5 space-y-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Payment History ({doc.paymentRecords.length})</h3>
+                <div className="divide-y divide-border/40 rounded-xl border border-border/60 bg-background/50 overflow-hidden">
+                  {doc.paymentRecords.map((p, idx) => (
+                    <div key={p.id || idx} className="flex flex-col sm:flex-row sm:items-center sm:justify-between p-3 text-sm gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                        <span className="font-semibold text-foreground">{currency(p.amount)}</span>
+                        <span className="rounded-md bg-secondary/80 px-2 py-0.5 text-xs font-medium text-muted-foreground">{p.method?.replace("_", " ")}</span>
+                        {p.note ? <span className="text-xs text-muted-foreground italic">"{p.note}"</span> : null}
+                      </div>
+                      <span className="text-xs text-muted-foreground">{p.paidAt ? new Date(p.paidAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "-"}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </section>
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -486,6 +646,14 @@ function ModernBillingDetail({
           <DocumentStatusTimeline doc={doc} />
         </aside>
       </div>
+
+      <RecordPaymentDialog
+        open={paymentModalOpen}
+        onOpenChange={setPaymentModalOpen}
+        remainingAmount={remainingAmount}
+        onConfirm={onRecordPayment}
+        loading={recordingPayment}
+      />
     </div>
   );
 }
@@ -552,16 +720,40 @@ function BillingPreviewPanel({
             <div className="text-3xl font-black uppercase text-[#ef1228]">{noun}</div>
             <PreviewMeta label={`${noun} #:`} value={doc.documentNo} />
             <PreviewMeta label="Issue Date:" value={formatDate(issueDate)} />
-            {doc.type === "INVOICE" ? <span className={paid ? "mt-2 inline-flex rounded bg-[#16a34a] px-2 py-1 text-xs font-bold text-white" : "mt-2 inline-flex rounded bg-[#ef1228] px-2 py-1 text-xs font-bold text-white"}>{paid ? "Paid" : "Unpaid"}</span> : null}
+            {doc.type === "INVOICE" ? (
+              <span
+                className={
+                  paid
+                    ? "mt-2 inline-flex rounded bg-[#16a34a] px-2 py-1 text-xs font-bold text-white"
+                    : Number(doc.paidAmount || 0) > 0
+                      ? "mt-2 inline-flex rounded bg-amber-600 px-2 py-1 text-xs font-bold text-white"
+                      : "mt-2 inline-flex rounded bg-[#ef1228] px-2 py-1 text-xs font-bold text-white"
+                }
+              >
+                {paid ? "Paid" : Number(doc.paidAmount || 0) > 0 ? "Partially Paid" : "Unpaid"}
+              </span>
+            ) : null}
           </div>
         </div>
 
-        <div className="mt-5 text-sm leading-5">
-          <div className="font-bold">Bill To:</div>
-          <div>{displayName(doc.client)}</div>
-          <div>{doc.addressLine || "-"}</div>
-          <div>{doc.phoneNo || doc.client?.phone || "-"}</div>
-          <div>{doc.client?.email || "-"}</div>
+        <div className="mt-5 grid gap-4 text-sm leading-5 sm:grid-cols-2">
+          <div>
+            <div className="font-bold">Bill To:</div>
+            <div>{displayName(doc.client)}</div>
+            <div>{doc.addressLine || "-"}</div>
+            <div>{doc.phoneNo || doc.client?.phone || "-"}</div>
+            <div>{doc.client?.email || "-"}</div>
+          </div>
+          {doc.hasOccupier ? (
+            <div className="rounded-lg border border-[#f3c4c9] bg-[#fff5f5] p-3 text-xs leading-5">
+              <div className="font-bold uppercase tracking-wider text-[#ef1228]">Site / Occupier:</div>
+              <div className="font-semibold text-foreground">{[doc.occupierFirstName, doc.occupierLastName].filter(Boolean).join(" ") || "-"}</div>
+              <div>{doc.occupierAddressLine || "-"}</div>
+              {doc.occupierExtraAddress ? <div>{doc.occupierExtraAddress}</div> : null}
+              {doc.occupierPostalCode ? <div className="font-medium text-foreground">Post Code: {doc.occupierPostalCode}</div> : null}
+              {doc.occupierPhone ? <div>Tel: {doc.occupierPhone}</div> : null}
+            </div>
+          ) : null}
         </div>
 
         <div className="mt-5 overflow-hidden border border-[#f3c4c9]">
@@ -583,10 +775,23 @@ function BillingPreviewPanel({
             <span className="mr-8">Subtotal</span>
             <span className="w-28 text-right">{currency(subtotal)}</span>
           </div>
-          <div className="flex items-center justify-between bg-[#ef1228] px-4 py-3 text-base font-bold uppercase text-white">
-            <span>Total Due</span>
-            <span>{currency(total)}</span>
-          </div>
+          {Number(doc.paidAmount || 0) > 0 ? (
+            <>
+              <div className="flex justify-between border-t border-[#edf1f6] px-3 py-2 text-xs font-semibold text-emerald-600">
+                <span>Paid to Date</span>
+                <span>- {currency(doc.paidAmount)}</span>
+              </div>
+              <div className="flex items-center justify-between bg-[#ef1228] px-4 py-3 text-base font-bold uppercase text-white">
+                <span>Remaining Due</span>
+                <span>{currency(Math.max(0, total - Number(doc.paidAmount || 0)))}</span>
+              </div>
+            </>
+          ) : (
+            <div className="flex items-center justify-between bg-[#ef1228] px-4 py-3 text-base font-bold uppercase text-white">
+              <span>Total Due</span>
+              <span>{currency(total)}</span>
+            </div>
+          )}
         </div>
 
         <div className="mt-4 text-xs leading-5">
@@ -595,6 +800,115 @@ function BillingPreviewPanel({
         </div>
       </div>
     </section>
+  );
+}
+
+function RecordPaymentDialog({
+  open,
+  onOpenChange,
+  remainingAmount,
+  onConfirm,
+  loading
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  remainingAmount: number;
+  onConfirm: (payload: { amount: number; method: string; note: string; paidAt: string }) => void;
+  loading: boolean;
+}) {
+  const [amount, setAmount] = useState(String(remainingAmount || ""));
+  const [method, setMethod] = useState("BANK_TRANSFER");
+  const [note, setNote] = useState("");
+  const [paidAt, setPaidAt] = useState(() => new Date().toISOString().slice(0, 10));
+
+  useEffect(() => {
+    if (open) {
+      setAmount(String(remainingAmount > 0 ? remainingAmount : ""));
+      setNote("");
+      setPaidAt(new Date().toISOString().slice(0, 10));
+    }
+  }, [open, remainingAmount]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = Number(amount);
+    if (!val || val <= 0) {
+      toast.error("Please enter a valid payment amount");
+      return;
+    }
+    onConfirm({ amount: val, method, note, paidAt });
+    onOpenChange(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md rounded-2xl bg-card p-6 shadow-apple">
+        <DialogHeader>
+          <DialogTitle className="text-xl font-bold">Record Payment</DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground">
+            Log a partial installment or full settlement for this document.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4 pt-2">
+          <label className="block space-y-1.5">
+            <span className="text-xs font-semibold text-foreground">Payment Amount (£)</span>
+            <Input
+              type="number"
+              step="0.01"
+              min="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              required
+              className="rounded-xl"
+              placeholder="0.00"
+            />
+            <span className="block text-[11px] text-muted-foreground">
+              Current remaining balance: £{remainingAmount.toFixed(2)}
+            </span>
+          </label>
+          <label className="block space-y-1.5">
+            <span className="text-xs font-semibold text-foreground">Payment Method</span>
+            <select
+              value={method}
+              onChange={(e) => setMethod(e.target.value)}
+              className="w-full h-10 rounded-xl border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+            >
+              <option value="BANK_TRANSFER">Bank Transfer (BACS)</option>
+              <option value="CARD">Credit / Debit Card</option>
+              <option value="CASH">Cash</option>
+              <option value="STRIPE">Stripe Online</option>
+              <option value="CHEQUE">Cheque</option>
+            </select>
+          </label>
+          <label className="block space-y-1.5">
+            <span className="text-xs font-semibold text-foreground">Payment Date</span>
+            <Input
+              type="date"
+              value={paidAt}
+              onChange={(e) => setPaidAt(e.target.value)}
+              className="rounded-xl"
+            />
+          </label>
+          <label className="block space-y-1.5">
+            <span className="text-xs font-semibold text-foreground">Reference / Notes (optional)</span>
+            <Input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="e.g. Deposit / 1st installment"
+              className="rounded-xl"
+            />
+          </label>
+          <div className="flex justify-end gap-2 pt-3">
+            <Button type="button" variant="outline" className="rounded-xl" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" className="rounded-xl bg-primary text-white hover:bg-primary/90" loading={loading}>
+              Save Payment
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -911,10 +1225,23 @@ function ModernBookingDetail({
               <DetailTile icon={Mail} label="Email" value={doc.client?.email ?? "-"} onAction={doc.client?.email ? onComposeEmail : undefined} />
               <DetailTile icon={Phone} label="Phone" value={doc.phoneNo ?? doc.client?.phone ?? "-"} />
               <DetailTile icon={Mail} label="CC" value={doc.cc ?? "-"} />
-              <DetailTile icon={MapPin} label="Postal Code" value={doc.postalCode ?? "-"} />
+              <DetailTile icon={MapPin} label="Post Code" value={doc.postalCode ?? "-"} />
               <DetailTile icon={CalendarDays} label="Booking Date" value={doc.bookingDate ? recordDate(doc) : "-"} />
-              <DetailTile icon={MapPin} label="Address" value={doc.addressLine ?? "-"} wide />
+              <DetailTile icon={MapPin} label={doc.hasOccupier ? "Billing Address" : "Address"} value={doc.addressLine ?? "-"} wide />
               <DetailTile icon={MapPin} label="Extra Address" value={doc.extraAddress ?? "-"} wide />
+              {doc.hasOccupier ? (
+                <>
+                  <DetailTile
+                    icon={UserRound}
+                    label="Site / Occupier"
+                    value={[doc.occupierFirstName, doc.occupierLastName].filter(Boolean).join(" ") || "-"}
+                  />
+                  <DetailTile icon={Phone} label="Site Phone" value={doc.occupierPhone ?? "-"} />
+                  <DetailTile icon={MapPin} label="Site Post Code" value={doc.occupierPostalCode ?? "-"} />
+                  <DetailTile icon={MapPin} label="Site Address" value={doc.occupierAddressLine ?? "-"} wide />
+                  {doc.occupierExtraAddress ? <DetailTile icon={MapPin} label="Site Address 2" value={doc.occupierExtraAddress} wide /> : null}
+                </>
+              ) : null}
               <DetailTile icon={FileText} label="Job Title" value={plainTextFromHtml(doc.jobTitle) || "-"} wide />
               <DetailTile icon={CheckCircle2} label="Include" value={parseInclude(doc.includeOptions).join(", ") || "-"} />
               <DetailTile icon={Wallet} label="Price" value={currency(doc.price ?? doc.total)} />

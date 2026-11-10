@@ -83,19 +83,46 @@ export function ClientDetailPage() {
   const addresses = useMemo(() => collectAddresses(allDocuments), [allDocuments]);
   const recentDocuments = [...allDocuments].sort((first, second) => dateValue(second) - dateValue(first));
   const invoiceDocuments = allDocuments.filter((doc) => doc.type === "INVOICE");
-  const paidAmount = invoiceDocuments
-    .filter(isPaidInvoice)
-    .reduce((sum, doc) => sum + Number(doc.total || 0), 0);
-  const unpaidAmount = invoiceDocuments
-    .filter((doc) => !isPaidInvoice(doc))
-    .reduce((sum, doc) => sum + Number(doc.total || 0), 0);
-  const totalPaymentAmount = paidAmount + unpaidAmount;
-  const paymentChartData = totalPaymentAmount
+  const quotationDocuments = allDocuments.filter((doc) => doc.type === "QUOTATION");
+
+  const totalInvoiced = invoiceDocuments.reduce((sum, doc) => sum + Number(doc.total || doc.price || 0), 0);
+  const paidInvoiceAmount = invoiceDocuments.reduce((sum, doc) => {
+    const p = Number(doc.paidAmount || 0);
+    const t = Number(doc.total || doc.price || 0);
+    return sum + (p > 0 ? p : isPaidInvoice(doc) ? t : 0);
+  }, 0);
+  const unpaidInvoiceAmount = Math.max(0, totalInvoiced - paidInvoiceAmount);
+
+  const totalQuoted = quotationDocuments.reduce((sum, doc) => sum + Number(doc.total || doc.price || 0), 0);
+  const paidQuoteAmount = quotationDocuments.reduce((sum, doc) => sum + Number(doc.paidAmount || 0), 0);
+  const remainingQuoteAmount = Math.max(0, totalQuoted - paidQuoteAmount);
+
+  const fullPaidInvoiceCount = invoiceDocuments.filter((doc) => {
+    const p = Number(doc.paidAmount || 0);
+    const t = Number(doc.total || doc.price || 0);
+    return isPaidInvoice(doc) || (p >= t && t > 0);
+  }).length;
+
+  const partialPaidInvoiceCount = invoiceDocuments.filter((doc) => {
+    const p = Number(doc.paidAmount || 0);
+    const t = Number(doc.total || doc.price || 0);
+    return p > 0 && p < t && !isPaidInvoice(doc);
+  }).length;
+
+  const unpaidInvoiceCount = Math.max(0, invoiceDocuments.length - fullPaidInvoiceCount - partialPaidInvoiceCount);
+
+  const partialQuoteCount = quotationDocuments.filter((doc) => {
+    const p = Number(doc.paidAmount || 0);
+    const t = Number(doc.total || doc.price || 0);
+    return p > 0 && p < t;
+  }).length;
+
+  const paymentChartData = totalInvoiced
     ? [
-        { name: "Paid", value: paidAmount, color: "#10b981" },
-        { name: "Outstanding", value: unpaidAmount, color: "#ef233c" }
+        { name: "Paid in Full", value: paidInvoiceAmount, color: "#10b981" },
+        { name: "Remaining Outstanding (Baqaya)", value: unpaidInvoiceAmount, color: "#ef233c" }
       ]
-    : [{ name: "No payments", value: 1, color: "hsl(var(--muted))" }];
+    : [{ name: "No invoices", value: 1, color: "hsl(var(--muted))" }];
 
   if (isLoading || !client) return <div className="text-muted-foreground">Loading client...</div>;
 
@@ -196,20 +223,47 @@ export function ClientDetailPage() {
           </section>
 
           <section className="rounded-2xl border border-border/50 bg-card/70 p-4 shadow-apple backdrop-blur-xl sm:p-5">
-            <div className="mb-4">
-              <h2 className="text-lg font-semibold">Payment Overview</h2>
-              <p className="mt-1 text-xs text-muted-foreground">Paid and outstanding invoice value for this client.</p>
+            <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-semibold">Payment & Balance Overview</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">Settled, partial payments, and outstanding balances.</p>
+              </div>
+              {partialPaidInvoiceCount > 0 ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-600">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                  {partialPaidInvoiceCount} Partially Paid {partialPaidInvoiceCount === 1 ? "Invoice" : "Invoices"}
+                </span>
+              ) : null}
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              <PaymentMetric label="Total" value={totalPaymentAmount} tone="neutral" />
-              <PaymentMetric label="Paid" value={paidAmount} tone="paid" />
-              <PaymentMetric label="Unpaid" value={unpaidAmount} tone="unpaid" />
+
+            <div className="grid grid-cols-3 gap-2 sm:gap-3">
+              <PaymentMetric label="Total Invoiced" value={totalInvoiced} tone="neutral" />
+              <PaymentMetric label="Total Collected" value={paidInvoiceAmount} tone="paid" />
+              <PaymentMetric label="Remaining Due (Baqaya)" value={unpaidInvoiceAmount} tone="unpaid" />
             </div>
+
+            <div className="mt-3 flex flex-wrap gap-2 text-xs">
+              <span className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-emerald-700 font-medium">
+                {fullPaidInvoiceCount} Fully Paid
+              </span>
+              <span className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-amber-700 font-medium">
+                {partialPaidInvoiceCount} Partial Payments
+              </span>
+              <span className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-2.5 py-1 text-rose-700 font-medium">
+                {unpaidInvoiceCount} Unpaid
+              </span>
+              {partialQuoteCount > 0 ? (
+                <span className="rounded-xl border border-blue-500/20 bg-blue-500/10 px-2.5 py-1 text-blue-700 font-medium">
+                  {partialQuoteCount} Quotes with Deposits
+                </span>
+              ) : null}
+            </div>
+
             <div className="mt-4 grid min-w-0 items-center gap-3 sm:grid-cols-[190px_minmax(0,1fr)]">
               <div className="h-[180px] min-w-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
-                    <Pie data={paymentChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={48} outerRadius={72} paddingAngle={paidAmount && unpaidAmount ? 4 : 0} stroke="none">
+                    <Pie data={paymentChartData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={48} outerRadius={72} paddingAngle={paidInvoiceAmount && unpaidInvoiceAmount ? 4 : 0} stroke="none">
                       {paymentChartData.map((item) => <Cell key={item.name} fill={item.color} />)}
                     </Pie>
                     <Tooltip
@@ -221,10 +275,10 @@ export function ClientDetailPage() {
                 </ResponsiveContainer>
               </div>
               <div className="space-y-3">
-                <PaymentLegend color="bg-emerald-500" label="Collected" value={paidAmount} />
-                <PaymentLegend color="bg-primary" label="Outstanding" value={unpaidAmount} />
+                <PaymentLegend color="bg-emerald-500" label="Collected to Date" value={paidInvoiceAmount} />
+                <PaymentLegend color="bg-primary" label="Remaining Due (Baqaya)" value={unpaidInvoiceAmount} />
                 <div className="border-t border-border/60 pt-3 text-xs text-muted-foreground">
-                  {totalPaymentAmount ? `${Math.round((paidAmount / totalPaymentAmount) * 100)}% of invoiced value collected` : "No invoice value recorded yet"}
+                  {totalInvoiced ? `${Math.round((paidInvoiceAmount / totalInvoiced) * 100)}% of invoiced value collected` : "No invoice value recorded yet"}
                 </div>
               </div>
             </div>
@@ -281,7 +335,7 @@ export function ClientDetailPage() {
               <SummaryCard icon={CalendarDays} label="Bookings" value={bookingCount} tone="blue" link={`/documents?type=BOOKING&clientId=${client.id}&title=Client%20Bookings`} />
               <SummaryCard icon={Receipt} label="Invoices" value={invoiceCount} tone="green" link={`/documents?type=INVOICE&clientId=${client.id}&title=Client%20Invoices`} />
               <SummaryCard icon={FileText} label="Quotations" value={quotationCount} tone="red" link={`/documents?type=QUOTATION&clientId=${client.id}&title=Client%20Quotations`} />
-              <SummaryCard icon={Wallet} label="Unpaid Amount" value={currency(unpaidAmount)} tone="amber" />
+              <SummaryCard icon={Wallet} label="Remaining Due (Baqaya)" value={currency(unpaidInvoiceAmount)} tone="amber" />
             </div>
           </section>
 
@@ -460,10 +514,28 @@ function recordIconClass(type: DocumentType) {
 
 function StatusBadge({ doc }: { doc: DocumentRecord }) {
   const confirmed = doc.type === "BOOKING" && doc.bookingConfirmed;
-  const paid = doc.type === "INVOICE" && doc.paymentStatus === "PAID";
-  const label = confirmed ? "Confirmed" : paid ? "Paid" : doc.status === "DRAFT" ? "Draft" : doc.status;
-  const tone = confirmed || paid ? "bg-emerald-500/10 text-emerald-600" : doc.status === "DRAFT" ? "bg-secondary text-secondary-foreground" : "bg-indigo-500/10 text-indigo-600";
-  return <Badge className={`${tone} hover:${tone}`}>{label}</Badge>;
+  const paidAmount = Number(doc.paidAmount || 0);
+  const total = Number(doc.total || doc.price || 0);
+  const isPaid = doc.paymentStatus === "PAID" || (paidAmount >= total && total > 0);
+  const isPartial = (doc.paymentStatus === "PARTIALLY_PAID" || (paidAmount > 0 && paidAmount < total)) && !isPaid;
+
+  if (confirmed) {
+    return <Badge className="bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/15">Confirmed</Badge>;
+  }
+  if (isPaid && doc.type !== "BOOKING") {
+    return <Badge className="bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/15">Paid</Badge>;
+  }
+  if (isPartial && doc.type !== "BOOKING") {
+    return (
+      <Badge className="border border-amber-500/30 bg-amber-500/10 text-amber-700 hover:bg-amber-500/15 dark:text-amber-400">
+        Partial (£{paidAmount.toFixed(0)} / £{total.toFixed(0)})
+      </Badge>
+    );
+  }
+  if (doc.status === "DRAFT") {
+    return <Badge className="bg-secondary text-secondary-foreground">Draft</Badge>;
+  }
+  return <Badge className="bg-indigo-500/10 text-indigo-600 hover:bg-indigo-500/15">{doc.status}</Badge>;
 }
 
 function TimelineItem({ doc }: { doc: DocumentRecord }) {

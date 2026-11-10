@@ -44,6 +44,15 @@ export type Attachment = {
   dataUrl: string;
 };
 
+export type PaymentRecord = {
+  id?: string;
+  documentId?: string;
+  amount: number | string;
+  note?: string;
+  method: string;
+  paidAt: string;
+};
+
 export type DocumentRecord = {
   id: string;
   type: DocumentType;
@@ -70,6 +79,14 @@ export type DocumentRecord = {
   addressLine?: string;
   extraAddress?: string;
   selectedAddress?: unknown;
+  hasOccupier?: boolean;
+  occupierFirstName?: string;
+  occupierLastName?: string;
+  occupierPhone?: string;
+  occupierPostalCode?: string;
+  occupierAddressLine?: string;
+  occupierExtraAddress?: string;
+  occupierSelectedAddress?: unknown;
   price?: string | number;
   includeOptions?: string;
   sendMail?: boolean;
@@ -82,6 +99,7 @@ export type DocumentRecord = {
   emailError?: string;
   subtotal: string | number;
   total: string | number;
+  paidAmount?: string | number;
   paymentStatus: string;
   paymentUrl?: string;
   pdfUrl?: string;
@@ -92,6 +110,7 @@ export type DocumentRecord = {
   lineItems: LineItem[];
   attachments?: Attachment[];
   revisions?: DocumentRecord[];
+  paymentRecords?: PaymentRecord[];
 };
 
 export type AddressSuggestion = {

@@ -51,6 +51,8 @@ export const crmApi = {
   cloneDocument: async (id: string) => (await api.post<DocumentRecord>(`/documents/${id}/clone`, {})).data,
   sendDocument: async (id: string) => (await api.post<DocumentRecord>(`/documents/${id}/send`, {})).data,
   markPaid: async (id: string) => (await api.post<DocumentRecord>(`/documents/${id}/mark-paid`, {})).data,
+  recordPayment: async (id: string, payload: { amount: number; note?: string; method?: string; paidAt?: string }) =>
+    (await api.post<DocumentRecord>(`/documents/${id}/payments`, payload)).data,
   addresses: async (q: string) => (await api.get<AddressSuggestion[]>("/addresses/search", { params: { q } })).data,
   pdfPreview: async (id: string) => (await api.get<{ html: string }>(`/pdf/documents/${id}`)).data,
   pdfDownloadUrl: (id: string) => `${String(api.defaults.baseURL ?? "").replace(/\/$/, "")}/pdf/documents/${id}/download?action=download`,

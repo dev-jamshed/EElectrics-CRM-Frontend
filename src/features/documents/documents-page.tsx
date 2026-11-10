@@ -63,11 +63,25 @@ export function DocumentsPage() {
             id: "payment",
             header: "Payment",
             accessorFn: (row) => row.paymentStatus,
-            cell: ({ row }) => (
-              <Badge className={row.original.paymentStatus === "PAID" ? "rounded-full bg-emerald-500/10 text-emerald-600" : "rounded-full bg-amber-500/10 text-amber-600"}>
-                {row.original.paymentStatus === "PAID" ? "Paid" : "Unpaid"}
-              </Badge>
-            )
+            cell: ({ row }) => {
+              const doc = row.original;
+              const paidAmount = Number(doc.paidAmount || 0);
+              const total = Number(doc.total || doc.price || 0);
+              const isPaid = doc.paymentStatus === "PAID" || (paidAmount >= total && total > 0);
+              const isPartial = (doc.paymentStatus === "PARTIALLY_PAID" || (paidAmount > 0 && paidAmount < total)) && !isPaid;
+
+              if (isPaid) {
+                return <Badge className="rounded-full bg-emerald-500/10 text-emerald-600">Paid</Badge>;
+              }
+              if (isPartial) {
+                return (
+                  <Badge className="rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400">
+                    Partial (£{paidAmount.toFixed(0)} / £{total.toFixed(0)})
+                  </Badge>
+                );
+              }
+              return <Badge className="rounded-full bg-amber-500/10 text-amber-600">Unpaid</Badge>;
+            }
           },
           {
             header: "Paid at",
