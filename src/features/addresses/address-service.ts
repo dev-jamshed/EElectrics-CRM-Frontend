@@ -12,7 +12,22 @@ export async function fetchHousesByPostcode(postcode: string): Promise<string[]>
   const cleanPostcode = postcode.trim();
   if (!cleanPostcode || cleanPostcode.length < 2) return [];
 
-  // Try direct Woosmap call (identical to the reference Laravel project)
+  // 1. Try backend API proxy first (sends Referer: https://crm.eelectrics.co.uk/ so it is never blocked by domain restrictions on Vercel/localhost)
+  try {
+    const results = await crmApi.addresses(cleanPostcode);
+    if (results && results.length > 0) {
+      const houses = results
+        .map((item) => (item.line || item.label || "").trim())
+        .filter((line) => Boolean(line));
+      if (houses.length > 0) {
+        return houses;
+      }
+    }
+  } catch (err) {
+    console.warn("Backend address proxy failed, attempting direct Woosmap fetch:", err);
+  }
+
+  // 2. Direct Woosmap call fallback (active on crm.eelectrics.co.uk domain)
   try {
     const autocompleteUrl = `https://api.woosmap.com/localities/autocomplete/?key=${WOOSMAP_API_KEY}&input=${encodeURIComponent(
       cleanPostcode
@@ -42,18 +57,9 @@ export async function fetchHousesByPostcode(postcode: string): Promise<string[]>
       }
     }
   } catch (err) {
-    console.warn("Direct Woosmap fetch error, falling back to backend proxy:", err);
+    console.error("Direct Woosmap fetch failed:", err);
   }
 
-  // Fallback to backend API proxy (which forwards Referer: https://crm.eelectrics.co.uk/)
-  try {
-    const results = await crmApi.addresses(cleanPostcode);
-    return results
-      .map((item) => (item.line || item.label || "").trim())
-      .filter((line) => Boolean(line));
-  } catch (err) {
-    console.error("Backend addresses fetch failed:", err);
-    return [];
-  }
+  return [];
 }
 
