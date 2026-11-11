@@ -120,7 +120,7 @@ export function ClientDetailPage() {
   const paymentChartData = totalInvoiced
     ? [
         { name: "Paid in Full", value: paidInvoiceAmount, color: "#10b981" },
-        { name: "Remaining Outstanding (Baqaya)", value: unpaidInvoiceAmount, color: "#ef233c" }
+        { name: "Remaining Outstanding", value: unpaidInvoiceAmount, color: "#ef233c" }
       ]
     : [{ name: "No invoices", value: 1, color: "hsl(var(--muted))" }];
 
@@ -239,7 +239,7 @@ export function ClientDetailPage() {
             <div className="grid grid-cols-3 gap-2 sm:gap-3">
               <PaymentMetric label="Total Invoiced" value={totalInvoiced} tone="neutral" />
               <PaymentMetric label="Total Collected" value={paidInvoiceAmount} tone="paid" />
-              <PaymentMetric label="Remaining Due (Baqaya)" value={unpaidInvoiceAmount} tone="unpaid" />
+              <PaymentMetric label="Remaining Due" value={unpaidInvoiceAmount} tone="unpaid" />
             </div>
 
             <div className="mt-3 flex flex-wrap gap-2 text-xs">
@@ -276,7 +276,7 @@ export function ClientDetailPage() {
               </div>
               <div className="space-y-3">
                 <PaymentLegend color="bg-emerald-500" label="Collected to Date" value={paidInvoiceAmount} />
-                <PaymentLegend color="bg-primary" label="Remaining Due (Baqaya)" value={unpaidInvoiceAmount} />
+                <PaymentLegend color="bg-primary" label="Remaining Due" value={unpaidInvoiceAmount} />
                 <div className="border-t border-border/60 pt-3 text-xs text-muted-foreground">
                   {totalInvoiced ? `${Math.round((paidInvoiceAmount / totalInvoiced) * 100)}% of invoiced value collected` : "No invoice value recorded yet"}
                 </div>
@@ -335,7 +335,7 @@ export function ClientDetailPage() {
               <SummaryCard icon={CalendarDays} label="Bookings" value={bookingCount} tone="blue" link={`/documents?type=BOOKING&clientId=${client.id}&title=Client%20Bookings`} />
               <SummaryCard icon={Receipt} label="Invoices" value={invoiceCount} tone="green" link={`/documents?type=INVOICE&clientId=${client.id}&title=Client%20Invoices`} />
               <SummaryCard icon={FileText} label="Quotations" value={quotationCount} tone="red" link={`/documents?type=QUOTATION&clientId=${client.id}&title=Client%20Quotations`} />
-              <SummaryCard icon={Wallet} label="Remaining Due (Baqaya)" value={currency(unpaidInvoiceAmount)} tone="amber" />
+              <SummaryCard icon={Wallet} label="Remaining Due" value={currency(unpaidInvoiceAmount)} tone="amber" />
             </div>
           </section>
 

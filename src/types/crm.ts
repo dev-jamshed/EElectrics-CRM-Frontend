@@ -100,6 +100,7 @@ export type DocumentRecord = {
   subtotal: string | number;
   total: string | number;
   paidAmount?: string | number;
+  partialPaymentAmount?: string | number;
   paymentStatus: string;
   paymentUrl?: string;
   pdfUrl?: string;

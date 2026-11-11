@@ -526,7 +526,7 @@ function ModernBillingDetail({
                     <span>- {currency(paidAmount)}</span>
                   </div>
                   <div className="flex items-center justify-between border-t border-border/60 bg-primary/10 px-5 py-3 text-sm font-bold text-primary">
-                    <span>Remaining Due (Baqaya)</span>
+                    <span>Remaining Balance Due</span>
                     <span>{currency(remainingAmount)}</span>
                   </div>
                 </>
@@ -540,7 +540,24 @@ function ModernBillingDetail({
                 <h2 className="text-lg font-bold">Payment & Balance Breakdown</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">Manage installment payments, view remaining balance, and log settlements.</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {isInvoice && !isFullyPaid ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="rounded-xl border-border/70 hover:bg-secondary text-xs font-semibold"
+                    onClick={() => {
+                      const base = (import.meta.env.VITE_API_URL ?? "http://localhost:4000/api").replace(/\/$/, "");
+                      const payUrl = `${base}/public/payments/${doc.id}`;
+                      navigator.clipboard.writeText(payUrl);
+                      toast.success("Payment link copied to clipboard!");
+                    }}
+                  >
+                    <Link2 className="h-3.5 w-3.5 mr-1" />
+                    Copy Payment Link ({doc.partialPaymentAmount && Number(doc.partialPaymentAmount) > 0 && Number(doc.partialPaymentAmount) < remainingAmount ? `£${Number(doc.partialPaymentAmount).toFixed(2)} Partial` : `£${remainingAmount.toFixed(2)}`})
+                  </Button>
+                ) : null}
                 {!isFullyPaid ? (
                   <Button
                     type="button"
@@ -565,7 +582,7 @@ function ModernBillingDetail({
                 <span className="text-[11px] font-medium text-emerald-600">{total > 0 ? Math.min(100, Math.round((paidAmount / total) * 100)) : 0}% settled</span>
               </div>
               <div className="rounded-2xl border border-primary/20 bg-primary/10 p-4">
-                <span className="text-xs font-semibold text-primary">Remaining Balance (Baqaya)</span>
+                <span className="text-xs font-semibold text-primary">Remaining Balance</span>
                 <div className="mt-1 text-2xl font-bold text-primary">{currency(remainingAmount)}</div>
                 <span className="text-[11px] font-medium text-muted-foreground">{isFullyPaid ? "Fully cleared" : "Outstanding balance"}</span>
               </div>

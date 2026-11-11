@@ -608,6 +608,7 @@ export function DocumentFormPage() {
     bookingDate: "",
     price: "",
     paidAmount: "",
+    partialPaymentAmount: "",
     labourDescription: "",
     labourPrice: "",
     materialDescription: "",
@@ -688,6 +689,7 @@ export function DocumentFormPage() {
       bookingDate: isClone ? currentDate : seed.bookingDate?.slice(0, 10) ?? "",
       price: seed.price ? String(seed.price) : seed.total ? String(seed.total) : "",
       paidAmount: seed.paidAmount ? String(seed.paidAmount) : "",
+      partialPaymentAmount: seed.partialPaymentAmount ? String(seed.partialPaymentAmount) : "",
       labourDescription: seed.lineItems?.find((item) => item.kind === "LABOUR")?.description ?? "",
       labourPrice: seed.lineItems?.find((item) => item.kind === "LABOUR")?.unitPrice ? String(seed.lineItems.find((item) => item.kind === "LABOUR")?.unitPrice) : "",
       materialDescription: seed.lineItems?.find((item) => item.kind === "MATERIAL")?.description ?? "",
@@ -895,6 +897,7 @@ export function DocumentFormPage() {
         bookingDate: form.type === "BOOKING" ? form.bookingDate || form.issueDate || undefined : undefined,
         price: documentAmount,
         paidAmount: form.paidAmount ? Number(form.paidAmount) : undefined,
+        partialPaymentAmount: form.partialPaymentAmount ? Number(form.partialPaymentAmount) : null,
         includeOptions: computedIncludeOptions,
         sendMail: overrides?.sendMail ?? form.sendMail,
         sendImages: form.sendImages,
@@ -1188,30 +1191,67 @@ export function DocumentFormPage() {
                     <Percent className="h-4 w-4" /> Add discount
                   </Button>
                 </div>
-                <div className="w-full space-y-2.5 rounded-2xl bg-secondary/50 p-4 text-sm sm:w-[320px]">
+                <div className="w-full space-y-2.5 rounded-2xl bg-secondary/50 p-4 text-sm sm:w-[340px]">
                   <div className="flex justify-between text-muted-foreground"><span>Subtotal</span><span>£{subtotal.toFixed(2)}</span></div>
                   <div className="flex justify-between border-t border-border/70 pt-2 text-base font-bold"><span>Total Amount</span><span>£{subtotal.toFixed(2)}</span></div>
+
+                  {Number(form.paidAmount || 0) > 0 ? (
+                    <>
+                      <div className="flex justify-between text-emerald-600 font-medium text-xs">
+                        <span>Paid to Date</span>
+                        <span>- £{Number(form.paidAmount).toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between border-t border-border/70 pt-1 text-sm font-semibold text-primary">
+                        <span>Outstanding Balance</span>
+                        <span>£{Math.max(0, subtotal - Number(form.paidAmount)).toFixed(2)}</span>
+                      </div>
+                    </>
+                  ) : null}
+
                   <div className="pt-2 border-t border-border/70">
-                    <label className="block text-xs font-semibold text-muted-foreground mb-1">
-                      Initial / Partial Payment Received (£)
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-semibold text-foreground">
+                        Payment Link Amount (£)
+                      </label>
+                      <span className="text-[10px] text-muted-foreground font-medium">Optional</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mb-1.5 leading-snug">
+                      Specify an amount to collect via the online payment link. Any remaining balance will be retained for future settlement.
+                    </p>
                     <Input
                       type="number"
                       step="0.01"
-                      min="0"
-                      max={subtotal}
-                      placeholder="0.00"
+                      min="0.01"
+                      max={Math.max(0, subtotal - Number(form.paidAmount || 0))}
+                      placeholder={`Full balance (£${Math.max(0, subtotal - Number(form.paidAmount || 0)).toFixed(2)})`}
                       className="h-9 text-sm bg-background/80 border-border"
-                      value={form.paidAmount}
-                      onChange={(e) => setForm({ ...form, paidAmount: e.target.value })}
+                      value={form.partialPaymentAmount}
+                      onChange={(e) => setForm({ ...form, partialPaymentAmount: e.target.value })}
                     />
                   </div>
-                  {Number(form.paidAmount || 0) > 0 ? (
-                    <div className="flex justify-between items-center pt-2 border-t border-border/70 text-sm font-bold text-primary">
-                      <span>Remaining Balance Due:</span>
-                      <span>£{Math.max(0, subtotal - Number(form.paidAmount || 0)).toFixed(2)}</span>
+
+                  {Number(form.partialPaymentAmount || 0) > 0 &&
+                  Number(form.partialPaymentAmount || 0) < Math.max(0, subtotal - Number(form.paidAmount || 0)) ? (
+                    <div className="rounded-xl border border-primary/20 bg-primary/5 p-2.5 text-xs space-y-1.5 mt-2 animate-in fade-in-50">
+                      <div className="flex justify-between items-center text-primary font-bold">
+                        <span>Link will charge:</span>
+                        <span className="text-sm">£{Number(form.partialPaymentAmount).toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-muted-foreground border-t border-border/60 pt-1 text-[11px]">
+                        <span>Remaining balance:</span>
+                        <span className="font-semibold text-foreground">
+                          £{Math.max(0, subtotal - Number(form.paidAmount || 0) - Number(form.partialPaymentAmount)).toFixed(2)}
+                        </span>
+                      </div>
                     </div>
-                  ) : null}
+                  ) : (
+                    <div className="flex justify-between items-center pt-1 text-[11px] text-muted-foreground">
+                      <span>Link will charge:</span>
+                      <span className="font-medium text-foreground">
+                        Full remaining balance (£{Math.max(0, subtotal - Number(form.paidAmount || 0)).toFixed(2)})
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
